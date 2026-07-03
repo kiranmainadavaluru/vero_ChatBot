@@ -1,0 +1,14 @@
+flask
+flask-cors
+python-dotenv
+PyPDF2
+langchain-text-splitters
+sentence-transformers
+weaviate-client>=3.24,<4
+huggingface_hub
+python-docx
+openpyxl
+xlrd
+python-pptx
+beautifulsoup4
+psycopg2-binary
