@@ -133,9 +133,7 @@ function RetrievalBadge({ retrieval }) {
   )
 }
 
-function Message({ role, content, sources, retrieval, error }) {
-  const [showEvidence, setShowEvidence] = useState(false)
-
+function Message({ role, content, error }) {
   if (role === 'user') {
     return (
       <div className="message-row user">
@@ -148,23 +146,6 @@ function Message({ role, content, sources, retrieval, error }) {
     <div className="message-row assistant">
       <div className={`bubble assistant-bubble ${error ? 'error-bubble' : ''}`}>
         <p className="answer-text">{content}</p>
-
-        {!error && retrieval && <RetrievalBadge retrieval={retrieval} />}
-
-        {sources && sources.length > 0 && (
-          <button className="evidence-toggle" onClick={() => setShowEvidence((s) => !s)}>
-            {showEvidence ? 'hide evidence' : `evidence (${sources.length})`}
-            <span className={`chevron ${showEvidence ? 'open' : ''}`}>›</span>
-          </button>
-        )}
-
-        {showEvidence && (
-          <div className="evidence-list">
-            {sources.map((s, i) => (
-              <EvidenceCard chunk={s} key={i} />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -172,7 +153,9 @@ function Message({ role, content, sources, retrieval, error }) {
 
 // ─────────────────────────────────────────────────────────────
 // Documents panel: upload, list, delete
+// (kept for reference but no longer rendered)
 // ─────────────────────────────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 function DocumentsPanel({ documents, loading, uploading, uploadErrors, onUpload, onDelete }) {
   const inputRef = useRef(null)
   const [dragOver, setDragOver] = useState(false)
@@ -240,7 +223,6 @@ function DocumentsPanel({ documents, loading, uploading, uploadErrors, onUpload,
 // ─────────────────────────────────────────────────────────────
 function Sidebar({
   sessions, activeId, onSelect, onCreate, onDelete, dragPreview, onDragStart, mobileOpen,
-  documents, documentsLoading, uploading, uploadErrors, onUpload, onDeleteDocument,
 }) {
   return (
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
@@ -268,15 +250,6 @@ function Sidebar({
           </div>
         ))}
       </div>
-
-      <DocumentsPanel
-        documents={documents}
-        loading={documentsLoading}
-        uploading={uploading}
-        uploadErrors={uploadErrors}
-        onUpload={onUpload}
-        onDelete={onDeleteDocument}
-      />
 
       <button
         type="button"
@@ -306,12 +279,11 @@ export default function App() {
   const [side, setSide] = useState('left')
   const [dragPreview, setDragPreview] = useState(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [documents, setDocuments] = useState([])
-  const [documentsLoading, setDocumentsLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
-  const [uploadErrors, setUploadErrors] = useState([])
+  const [uploadNotice, setUploadNotice] = useState(null) // { type: 'ok'|'err', text }
   const scrollRef = useRef(null)
   const isDraggingRef = useRef(false)
+  const attachInputRef = useRef(null)
 
   const activeSession = sessions.find((s) => s.id === activeId) ?? null
   const loading = loadingSessionId === activeId
@@ -352,47 +324,28 @@ export default function App() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [activeSession?.messages, loading, activeId])
 
-  // ── Documents: independent of chat sessions, loaded once ─────
-  useEffect(() => {
-    loadDocuments()
-  }, [])
-
-  async function loadDocuments() {
-    setDocumentsLoading(true)
-    try {
-      const docs = await apiListDocuments()
-      setDocuments(docs)
-    } catch (err) {
-      setActionError(err.message)
-    } finally {
-      setDocumentsLoading(false)
-    }
-  }
-
   async function handleUpload(fileList) {
     const files = Array.from(fileList || [])
     if (files.length === 0) return
     setUploading(true)
-    setUploadErrors([])
+    setUploadNotice(null)
     try {
       const result = await apiUploadFiles(files)
-      if (result.errors && result.errors.length > 0) {
-        setUploadErrors(result.errors)
+      const okCount = (result.uploaded || []).length
+      const errCount = (result.errors || []).length
+      if (okCount > 0 && errCount === 0) {
+        setUploadNotice({ type: 'ok', text: `Uploaded ${okCount} file${okCount === 1 ? '' : 's'}.` })
+      } else if (okCount > 0 && errCount > 0) {
+        setUploadNotice({ type: 'err', text: `Uploaded ${okCount}, ${errCount} failed.` })
+      } else if (errCount > 0) {
+        setUploadNotice({ type: 'err', text: `Upload failed: ${result.errors[0].error}` })
       }
-      await loadDocuments()
+      setTimeout(() => setUploadNotice(null), 4000)
     } catch (err) {
-      setActionError(err.message)
+      setUploadNotice({ type: 'err', text: err.message })
+      setTimeout(() => setUploadNotice(null), 4000)
     } finally {
       setUploading(false)
-    }
-  }
-
-  async function handleDeleteDocument(documentId) {
-    try {
-      await apiDeleteDocument(documentId)
-      setDocuments((prev) => prev.filter((d) => d.document_id !== documentId))
-    } catch (err) {
-      setActionError(err.message)
     }
   }
 
@@ -589,12 +542,6 @@ export default function App() {
         dragPreview={dragPreview}
         onDragStart={handleDragStart}
         mobileOpen={mobileSidebarOpen}
-        documents={documents}
-        documentsLoading={documentsLoading}
-        uploading={uploading}
-        uploadErrors={uploadErrors}
-        onUpload={handleUpload}
-        onDeleteDocument={handleDeleteDocument}
       />
 
       <main className="chat-shell">
@@ -606,8 +553,8 @@ export default function App() {
           >
             ☰
           </button>
-          <span className="eyebrow">retrieval console</span>
-          <h1>Ask VERO</h1>
+          <span className="eyebrow">your document assistant</span>
+          <h1>Vero</h1>
         </header>
 
         {actionError && (
@@ -627,8 +574,8 @@ export default function App() {
 
             {!messagesLoading && activeSession?.messages?.length === 0 && (
               <div className="empty-state">
-                <p>Nothing asked yet.</p>
-                <p className="empty-hint">Questions are answered strictly from your uploaded documents.</p>
+                <p>Hi, I'm Vero.</p>
+                <p className="empty-hint">Attach a document and ask me anything about it.</p>
               </div>
             )}
 
@@ -647,18 +594,59 @@ export default function App() {
           </div>
         </div>
 
+        {uploadNotice && (
+          <div className={`upload-toast ${uploadNotice.type === 'err' ? 'err' : 'ok'}`}>
+            {uploadNotice.text}
+          </div>
+        )}
+
         <form className="input-bar" onSubmit={sendQuestion}>
           <div className="chat-inner input-inner">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask something about your documents…"
-              disabled={loading}
-            />
-            <button type="submit" disabled={loading || !input.trim()}>
-              Send
-            </button>
+            <div className={`input-shell ${loading ? 'is-disabled' : ''}`}>
+              <input
+                ref={attachInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => { handleUpload(e.target.files); e.target.value = '' }}
+              />
+              <button
+                type="button"
+                className="icon-btn attach-btn"
+                onClick={() => attachInputRef.current?.click()}
+                disabled={loading || uploading}
+                aria-label="Attach a document"
+                title="Attach a document"
+              >
+                {uploading ? (
+                  <span className="mini-spinner" />
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                )}
+              </button>
+              <input
+                type="text"
+                className="text-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask Vero about your documents…"
+                disabled={loading}
+              />
+              <button
+                type="submit"
+                className="icon-btn send-btn"
+                disabled={loading || !input.trim()}
+                aria-label="Send message"
+                title="Send"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
+              </button>
+            </div>
           </div>
         </form>
       </main>

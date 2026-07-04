@@ -36,6 +36,12 @@ htmlcov/
 .env.local
 .env.*.local
 
+# Interview prep docs (personal notes, not part of the project)
+INTERVIEW_PREPARATION.md
+INTERVIEW_MOCK_PRACTICE.md
+INFOSYS_PYTHON_GENAI_INTERVIEW.md
+VERO_CHATBOT_INTERVIEW_QA.md
+
 # IDE
 .vscode/
 .idea/

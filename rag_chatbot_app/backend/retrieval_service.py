@@ -29,6 +29,15 @@ import vectorstore
 # were that document's best evidence.
 CANDIDATE_POOL_SIZE = 15
 
+# Maximum cosine distance for a chunk to be considered "relevant".
+# Weaviate cosine distance is 0 (identical) to 2 (opposite). Chunks
+# above this threshold are treated as not relevant, so the answer
+# path falls back to general knowledge. This makes the grounded-vs-
+# general decision deterministic (code-driven, not LLM-driven), so
+# semantically identical queries - including minor typos - take the
+# same path and produce the same answer.
+RELEVANCE_DISTANCE_THRESHOLD = 0.7
+
 
 def retrieve(client, embedding_model, question, top_k=3, document_id=None):
     """
@@ -52,7 +61,19 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
         return [], {"mode": "no_results"}
 
     ranked_documents = _rank_documents_by_relevance(candidates)
-    best_document_id = ranked_documents[0]["document_id"]
+    best_document = ranked_documents[0]
+    best_document_id = best_document["document_id"]
+
+    # Deterministic gate: if even the best chunk is too far in
+    # embedding space, don't ground on it - let the caller fall back
+    # to general knowledge.
+    if best_document["best_distance"] > RELEVANCE_DISTANCE_THRESHOLD:
+        return [], {
+            "mode": "below_threshold",
+            "best_distance": best_document["best_distance"],
+            "threshold": RELEVANCE_DISTANCE_THRESHOLD,
+            "candidate_documents": ranked_documents,
+        }
 
     routed_chunks = [c for c in candidates if c["document_id"] == best_document_id][:top_k]
 

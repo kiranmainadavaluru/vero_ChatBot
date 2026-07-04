@@ -543,7 +543,7 @@ body {
   40% { opacity: 1; transform: scale(1); }
 }
 
-/* ── Input bar ────────────────────────────────────────────── */
+/* ── Input bar with attach + send inside a pill ─────────────── */
 .input-bar {
   padding: 14px 32px 22px;
   background: var(--paper);
@@ -554,38 +554,109 @@ body {
   gap: 10px;
 }
 
-.input-bar input {
+.input-shell {
   flex: 1;
-  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 24px;
   background: var(--panel);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input-shell:focus-within {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(47, 110, 116, 0.12);
+}
+
+.input-shell.is-disabled { opacity: 0.7; }
+
+.input-shell .text-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 8px 6px;
   font-family: var(--font-body);
   font-size: 14px;
   color: var(--ink);
-  outline: none;
+  min-width: 0;
 }
 
-.input-bar input:focus {
-  border-color: var(--teal);
-}
+.input-shell .text-input::placeholder { color: var(--ink-soft); }
 
-.input-bar button {
-  padding: 0 20px;
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
   border: none;
-  border-radius: 8px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--sidebar-active);
+  color: var(--teal);
+}
+
+.icon-btn:disabled {
+  color: var(--line);
+  cursor: not-allowed;
+}
+
+.send-btn {
   background: var(--ink);
   color: var(--paper);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
 }
 
-.input-bar button:disabled {
+.send-btn:hover:not(:disabled) {
+  background: var(--teal);
+  color: var(--paper);
+}
+
+.send-btn:disabled {
   background: var(--line);
-  color: var(--ink-soft);
-  cursor: not-allowed;
+  color: var(--panel);
+}
+
+.mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Small upload result toast above the input */
+.upload-toast {
+  margin: 0 32px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+}
+.upload-toast.ok {
+  background: var(--teal-soft);
+  color: var(--teal);
+  border: 1px solid #cfe3e0;
+}
+.upload-toast.err {
+  background: var(--error-soft);
+  color: var(--error);
+  border: 1px solid #e7c4bb;
 }
 
 /* ── Boot / connection states ────────────────────────────────── */
