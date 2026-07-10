@@ -104,12 +104,23 @@ def insert_chunks(client, chunks, embeddings, metadata_list):
     print(f"✅ Stored {len(chunks)} chunks in Weaviate")
 
 
-def query(client, query_vector, top_k=3, where_filter=None):
+def query(client, query_vector, query_text, top_k=3, where_filter=None, alpha=0.5):
     """
-    Run a nearest-neighbor search.
+    Hybrid search: combines BM25 keyword matching on `content` with
+    vector similarity, fused into one ranked list by Weaviate itself.
 
-    where_filter is an optional Weaviate `where` clause dict, used in
-    a later step to restrict retrieval to a specific document.
+    alpha=0 is pure keyword search, alpha=1 is pure vector search;
+    0.5 weighs both equally. This matters because pure vector search
+    alone is weak at exact terms like specific numbers or labels -
+    e.g. "Day 2" vs "Day 12" vs "Day 30" read as nearly identical in
+    embedding space when the surrounding text (headings, bullet
+    structure) is otherwise the same. BM25 catches the literal text
+    match that vector search misses, while vector search still
+    catches paraphrased/conceptual matches BM25 alone would miss.
+
+    Returns chunks with `_additional.score` (higher = more relevant),
+    replacing the old `_additional.distance` (lower = more relevant)
+    from pure with_near_vector search.
     """
     builder = (
         client.query
@@ -117,9 +128,9 @@ def query(client, query_vector, top_k=3, where_filter=None):
             "content", "document_id", "filename", "file_type",
             "upload_timestamp", "page_number", "chunk_index",
         ])
-        .with_near_vector({"vector": query_vector})
+        .with_hybrid(query=query_text, vector=query_vector, alpha=alpha)
         .with_limit(top_k)
-        .with_additional(["distance"])
+        .with_additional(["score"])
     )
 
     if where_filter:

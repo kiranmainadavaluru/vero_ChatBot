@@ -57,6 +57,25 @@ rather than repeatedly re-querying to try to guess a "better" question.
 - Keep answers clear and concise.
 """
 
+# Used instead of SYSTEM_PROMPT when the user has strict mode turned on. The
+# prompt-level instruction alone isn't fully trustworthy (a model can still
+# ignore it), so run_agent() also enforces this in code below - see the
+# `strict_mode` short-circuit after search_documents returns no result.
+STRICT_SYSTEM_PROMPT = """You are Vero, an assistant that answers questions using \
+ONLY the user's uploaded documents. General knowledge is turned off.
+
+- Always call search_documents before answering a question, even if you think \
+you already know the answer.
+- Use list_uploaded_documents when the user asks what files are available.
+- Answer strictly using the content returned by search_documents - do not add, \
+assume, or fill in anything from your own general knowledge, even to complete \
+a partial answer.
+- If search_documents reports nothing relevant was found, tell the user plainly \
+that their uploaded documents don't contain that information. Do not guess, and \
+do not answer from general knowledge instead.
+- Keep answers clear and concise.
+"""
+
 TOOLS = [
     {
         "type": "function",
@@ -108,18 +127,22 @@ TOOLS = [
 ]
 
 
-def run_agent(hf_client, weaviate_client, embedding_model, session_id, question, document_id=None):
+def run_agent(hf_client, weaviate_client, embedding_model, session_id, question, document_id=None, strict_mode=False):
     """
     Agentic replacement for the old ask_llm(). The model decides for
     itself whether it needs to search documents, list documents, or
-    just answer directly.
+    just answer directly - unless strict_mode is True, in which case
+    a document search is forced and an empty/weak result short-circuits
+    straight to a fixed "not found" answer instead of letting the model
+    fall back to its own general knowledge.
 
     Returns (answer_text, sources, retrieval_info) - same shape the
     /api/chat route already expects, so the frontend contract doesn't
     change.
     """
+    system_prompt = STRICT_SYSTEM_PROMPT if strict_mode else SYSTEM_PROMPT
     messages = (
-        [{"role": "system", "content": SYSTEM_PROMPT}]
+        [{"role": "system", "content": system_prompt}]
         + _recent_messages_as_chat(session_id)
         + [{"role": "user", "content": question}]
     )
@@ -128,11 +151,19 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
     retrieval_info = {"mode": "agent_no_search"}
 
     for iteration in range(MAX_TOOL_ITERATIONS):
+        # In strict mode, don't let the model choose to skip retrieval on
+        # its first turn - that's the other way it was reaching general
+        # knowledge (never calling search_documents at all).
+        force_search = strict_mode and iteration == 0
         completion = hf_client.chat.completions.create(
             model=config.CHAT_MODEL,
             messages=messages,
             tools=TOOLS,
-            tool_choice="auto",
+            tool_choice=(
+                {"type": "function", "function": {"name": "search_documents"}}
+                if force_search
+                else "auto"
+            ),
             temperature=0.6,  # Kimi K2's recommended default
             max_tokens=400,
         )
@@ -165,6 +196,16 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
                 )
                 if chunks:
                     sources = _chunks_to_sources(chunks)
+                elif strict_mode:
+                    # Code-level stop, not just a prompt instruction: there is
+                    # nothing usable in the documents, so return a fixed
+                    # answer directly rather than handing control back to the
+                    # model, which could still choose to answer from memory.
+                    return (
+                        "I don't have that information in your uploaded documents.",
+                        [],
+                        retrieval_info,
+                    )
             elif name == "list_uploaded_documents":
                 tool_result = _tool_list_documents(weaviate_client)
             else:
@@ -229,11 +270,13 @@ def _tool_list_documents(weaviate_client):
 
 # ── Helpers ──────────────────────────────────────────────────────────
 def _chunks_to_sources(chunks):
-    """Same shape the old ask_llm-based route returned, so the frontend is unaffected."""
+    """Same shape the old ask_llm-based route returned, except `distance`
+    is now `score` (higher = more relevant) since retrieval switched
+    from pure vector search to hybrid search - see retrieval_service.py."""
     return [
         {
             "content": c["content"],
-            "distance": round(c["_additional"]["distance"], 4),
+            "score": round(float(c["_additional"]["score"]), 4),
             "chunk_index": c["chunk_index"],
             "filename": c["filename"],
             "page_number": c["page_number"],

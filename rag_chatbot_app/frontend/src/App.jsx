@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-const API_BASE = 'http://127.0.0.1:5000/api'
+const API_BASE = 'http://127.0.0.1:8000/api'
 
 // ─────────────────────────────────────────────────────────────
 // API helpers
@@ -74,7 +74,7 @@ function titleFromQuestion(question) {
 // Evidence + retrieval display
 // ─────────────────────────────────────────────────────────────
 function EvidenceCard({ chunk }) {
-  const relevance = Math.max(0, Math.min(1, 1 - chunk.distance))
+  const relevance = Math.max(0, Math.min(1, chunk.score))
   return (
     <div className="evidence-card">
       <div className="evidence-meta">
@@ -84,7 +84,7 @@ function EvidenceCard({ chunk }) {
         <div className="evidence-bar-track">
           <div className="evidence-bar-fill" style={{ width: `${relevance * 100}%` }} />
         </div>
-        <span className="evidence-distance">{chunk.distance.toFixed(3)}</span>
+        <span className="evidence-distance">{chunk.score.toFixed(3)}</span>
       </div>
       <p className="evidence-text">{chunk.content}</p>
     </div>
@@ -93,7 +93,26 @@ function EvidenceCard({ chunk }) {
 
 function RetrievalBadge({ retrieval }) {
   const [showCandidates, setShowCandidates] = useState(false)
-  if (!retrieval || !retrieval.filename) return null
+  if (!retrieval) return null
+
+  // No filename means the agent never grounded this answer in a document -
+  // either it didn't search at all, or the best match was too weak to trust.
+  // Show that plainly instead of staying silent, so it's obvious this
+  // answer came from the model's own knowledge, not your uploads.
+  if (!retrieval.filename) {
+    const reason =
+      retrieval.mode === 'below_threshold'
+        ? 'no close match found in your documents'
+        : 'answered without checking your documents'
+    return (
+      <div className="retrieval-block">
+        <span className="retrieval-badge general-knowledge">
+          <span className="retrieval-dot general-knowledge-dot" />
+          general knowledge · {reason}
+        </span>
+      </div>
+    )
+  }
 
   const isAuto = retrieval.mode === 'auto_routed'
   const candidates = retrieval.candidate_documents || []
@@ -115,7 +134,7 @@ function RetrievalBadge({ retrieval }) {
       {showCandidates && (
         <div className="candidate-list">
           {candidates.map((c) => {
-            const relevance = Math.max(0, Math.min(1, 1 / (1 + c.best_distance)))
+            const relevance = Math.max(0, Math.min(1, c.best_score))
             const isWinner = c.document_id === retrieval.document_id
             return (
               <div className={`candidate-row ${isWinner ? 'winner' : ''}`} key={c.document_id}>
@@ -133,7 +152,11 @@ function RetrievalBadge({ retrieval }) {
   )
 }
 
-function Message({ role, content, error }) {
+function Message({ role, content, error, sources, retrieval }) {
+  // Hook must run every render regardless of which branch returns below,
+  // so it's declared before the early user-message return.
+  const [showEvidence, setShowEvidence] = useState(false)
+
   if (role === 'user') {
     return (
       <div className="message-row user">
@@ -142,10 +165,30 @@ function Message({ role, content, error }) {
     )
   }
 
+  const hasEvidence = Array.isArray(sources) && sources.length > 0
+
   return (
     <div className="message-row assistant">
       <div className={`bubble assistant-bubble ${error ? 'error-bubble' : ''}`}>
         <p className="answer-text">{content}</p>
+
+        {!error && <RetrievalBadge retrieval={retrieval} />}
+
+        {!error && hasEvidence && (
+          <>
+            <button className="evidence-toggle" onClick={() => setShowEvidence((s) => !s)}>
+              {showEvidence ? 'Hide sources' : `Show ${sources.length} source${sources.length > 1 ? 's' : ''}`}
+              <span className={`chevron ${showEvidence ? 'open' : ''}`}>›</span>
+            </button>
+            {showEvidence && (
+              <div className="evidence-list">
+                {sources.map((chunk, i) => (
+                  <EvidenceCard key={i} chunk={chunk} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -280,6 +323,7 @@ export default function App() {
   const [dragPreview, setDragPreview] = useState(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [strictMode, setStrictMode] = useState(false) // "Docs only" - see sendQuestion
   const [uploadNotice, setUploadNotice] = useState(null) // { type: 'ok'|'err', text }
   const scrollRef = useRef(null)
   const isDraggingRef = useRef(false)
@@ -435,7 +479,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, session_id: targetId })
+        body: JSON.stringify({ question, session_id: targetId, strict_mode: strictMode })
       })
       const data = await res.json()
 
@@ -625,6 +669,20 @@ export default function App() {
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                   </svg>
                 )}
+              </button>
+              <button
+                type="button"
+                className={`strict-toggle ${strictMode ? 'active' : ''}`}
+                onClick={() => setStrictMode((s) => !s)}
+                aria-pressed={strictMode}
+                title={
+                  strictMode
+                    ? 'Docs only is ON - Vero will only answer from your uploaded documents'
+                    : 'Docs only is OFF - Vero may answer from general knowledge if nothing relevant is found'
+                }
+              >
+                <span className="strict-toggle-dot" />
+                Docs only
               </button>
               <input
                 type="text"

@@ -132,6 +132,7 @@ def chat():
     question = (data or {}).get("question", "").strip()
     document_id = (data or {}).get("document_id")  # optional: scope to one document
     session_id = (data or {}).get("session_id")
+    strict_mode = bool((data or {}).get("strict_mode", False))
 
     if not question:
         return jsonify({"error": "Question cannot be empty."}), 400
@@ -154,6 +155,7 @@ def chat():
             session_id,
             question,
             document_id=document_id,
+            strict_mode=strict_mode,
         )
 
         db.add_message(session_id, "assistant", answer, sources=sources, retrieval=retrieval_info)
@@ -190,5 +192,5 @@ if __name__ == "__main__":
         print(f"⏳ Ingesting {pdf_path} (PDF_PATH set) ...")
         upload_service.ingest_saved_file(weaviate_client, embedding_model, pdf_path)
 
-    print("\n🚀 API ready at http://localhost:5000")
-    app.run(port=5000, debug=False)
+    print("\n🚀 API ready at http://localhost:8000")
+    app.run(port=8000, debug=False)

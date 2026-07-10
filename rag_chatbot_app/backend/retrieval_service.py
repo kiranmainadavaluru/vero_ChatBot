@@ -20,6 +20,12 @@ Two retrieval modes:
     used as context - so even though the search ran across
     everything, chunks from unrelated documents never make it into
     the final answer.
+
+Search itself is hybrid (BM25 keyword + vector similarity, see
+vectorstore.query) rather than pure vector similarity - pure vector
+search alone was letting queries like "day 2" match almost any chunk
+that merely *looked* like a checklist entry, without the actual "Day
+2" chunk ranking anywhere near the top.
 """
 import vectorstore
 
@@ -29,14 +35,19 @@ import vectorstore
 # were that document's best evidence.
 CANDIDATE_POOL_SIZE = 15
 
-# Maximum cosine distance for a chunk to be considered "relevant".
-# Weaviate cosine distance is 0 (identical) to 2 (opposite). Chunks
-# above this threshold are treated as not relevant, so the answer
-# path falls back to general knowledge. This makes the grounded-vs-
-# general decision deterministic (code-driven, not LLM-driven), so
-# semantically identical queries - including minor typos - take the
-# same path and produce the same answer.
-RELEVANCE_DISTANCE_THRESHOLD = 0.7
+# How much weight vector similarity gets vs. BM25 keyword matching in
+# hybrid search. 0 = pure keyword, 1 = pure vector, 0.5 = equal.
+HYBRID_ALPHA = 0.5
+
+# Minimum hybrid relevance score (0-1, higher = more relevant) for a
+# chunk to be considered "relevant". Below this, the answer path
+# falls back to general knowledge instead of grounding on a weak
+# match. This is a starting value, not a calibrated one - hybrid
+# score distributions depend on your data, so watch the "Show
+# sources" scores in the UI on a few real questions (both ones that
+# should hit and ones that shouldn't) and adjust this up or down to
+# match where the real gap falls for your documents.
+MIN_RELEVANCE_SCORE = 0.2
 
 
 def retrieve(client, embedding_model, question, top_k=3, document_id=None):
@@ -49,14 +60,19 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
 
     if document_id:
         where_filter = _document_id_filter(document_id)
-        chunks = vectorstore.query(client, question_vector, top_k=top_k, where_filter=where_filter)
+        chunks = vectorstore.query(
+            client, question_vector, question, top_k=top_k,
+            where_filter=where_filter, alpha=HYBRID_ALPHA,
+        )
         return chunks, {
             "mode": "explicit_filter",
             "document_id": document_id,
             "filename": chunks[0]["filename"] if chunks else None,
         }
 
-    candidates = vectorstore.query(client, question_vector, top_k=CANDIDATE_POOL_SIZE)
+    candidates = vectorstore.query(
+        client, question_vector, question, top_k=CANDIDATE_POOL_SIZE, alpha=HYBRID_ALPHA,
+    )
     if not candidates:
         return [], {"mode": "no_results"}
 
@@ -64,14 +80,13 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
     best_document = ranked_documents[0]
     best_document_id = best_document["document_id"]
 
-    # Deterministic gate: if even the best chunk is too far in
-    # embedding space, don't ground on it - let the caller fall back
-    # to general knowledge.
-    if best_document["best_distance"] > RELEVANCE_DISTANCE_THRESHOLD:
+    # Deterministic gate: if even the best chunk scores too low, don't
+    # ground on it - let the caller fall back to general knowledge.
+    if best_document["best_score"] < MIN_RELEVANCE_SCORE:
         return [], {
             "mode": "below_threshold",
-            "best_distance": best_document["best_distance"],
-            "threshold": RELEVANCE_DISTANCE_THRESHOLD,
+            "best_score": best_document["best_score"],
+            "threshold": MIN_RELEVANCE_SCORE,
             "candidate_documents": ranked_documents,
         }
 
@@ -88,28 +103,30 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
 def _rank_documents_by_relevance(candidates):
     """
     Groups candidate chunks by document_id and scores each document
-    by its single best (lowest-distance) chunk. Using the best chunk
+    by its single best (highest-score) chunk. Using the best chunk
     rather than an average means one long, mostly-irrelevant document
     doesn't get penalized just for having more so-so chunks in the
     candidate pool - what matters is whether it has the single best
     piece of evidence for this question.
     """
-    best_distance_by_doc = {}
+    best_score_by_doc = {}
     filename_by_doc = {}
 
     for chunk in candidates:
         doc_id = chunk["document_id"]
-        distance = chunk["_additional"]["distance"]
-        if doc_id not in best_distance_by_doc or distance < best_distance_by_doc[doc_id]:
-            best_distance_by_doc[doc_id] = distance
+        # Weaviate's GraphQL API returns hybrid score as a string.
+        score = float(chunk["_additional"]["score"])
+        if doc_id not in best_score_by_doc or score > best_score_by_doc[doc_id]:
+            best_score_by_doc[doc_id] = score
             filename_by_doc[doc_id] = chunk["filename"]
 
     ranked = sorted(
         (
-            {"document_id": doc_id, "filename": filename_by_doc[doc_id], "best_distance": dist}
-            for doc_id, dist in best_distance_by_doc.items()
+            {"document_id": doc_id, "filename": filename_by_doc[doc_id], "best_score": score}
+            for doc_id, score in best_score_by_doc.items()
         ),
-        key=lambda d: d["best_distance"],
+        key=lambda d: d["best_score"],
+        reverse=True,
     )
     return ranked
 
