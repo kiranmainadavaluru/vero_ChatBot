@@ -1,0 +1,262 @@
+"""
+Agentic answering.
+
+Replaces the old fixed pipeline (always retrieve -> always generate)
+with a tool-calling loop: the model itself decides whether it needs
+to search the uploaded documents, list what's available, or just
+answer directly - the same way you'd expect a competent assistant to
+reason about it, rather than us hard-coding "if chunks: ... else: ...".
+
+Kimi-K2-Instruct-0905 has native OpenAI-compatible tool calling, and
+huggingface_hub.InferenceClient passes `tools`/`tool_choice` straight
+through - so this needs no new dependencies beyond what's already in
+requirements.txt.
+
+The underlying retrieval logic (document routing, the relevance
+distance threshold, explicit document_id scoping) is untouched and
+lives entirely in retrieval_service.py - this module only decides
+*when* to call it.
+"""
+import json
+import os
+
+import config
+import db
+import retrieval_service
+import vectorstore
+
+# Set AGENT_DEBUG=true in your environment to print each iteration of
+# the tool-calling loop (which tool was called, with what args, and
+# what came back). Useful for seeing *why* the loop didn't converge,
+# instead of only seeing the final "ran out of time" message.
+AGENT_DEBUG = os.getenv("AGENT_DEBUG", "false").lower() == "true"
+
+MAX_TOOL_ITERATIONS = 4          # hard stop so a confused loop can't run forever
+MAX_HISTORY_MESSAGES = 8         # last N chat turns given to the model as context
+SEARCH_TOP_K = 5
+
+SYSTEM_PROMPT = """You are Vero, a helpful assistant that answers questions using the \
+user's uploaded documents when relevant.
+
+- Use the search_documents tool whenever the question could plausibly be answered \
+by something the user has uploaded. Formulate a clear, standalone search query, \
+resolving any pronouns or missing topic from the conversation so far.
+- Use list_uploaded_documents when the user asks what files/documents are \
+available, or when you're unsure whether a relevant document exists.
+- If a document search comes back empty or irrelevant, answer from your own \
+general knowledge instead, and briefly say the answer is not from an uploaded \
+document.
+- Ground any document-based answer strictly in the retrieved content - do not \
+invent facts that aren't supported by it.
+- Once a tool has returned results, use them to answer - do not call the same \
+tool again with a reworded query unless the first result was clearly empty or \
+irrelevant. You have at most a few tool calls available; use them decisively.
+- If the user's message is short or ambiguous (e.g. a topic phrase rather than \
+a full question), search for it as-is and answer based on whatever is found, \
+rather than repeatedly re-querying to try to guess a "better" question.
+- Keep answers clear and concise.
+"""
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": (
+                "Search the user's uploaded documents for content relevant to a "
+                "query. Use this whenever the question could be answered by "
+                "something the user has uploaded. If document_id is omitted, "
+                "automatically routes to the single best-matching document."
+            ),
+            "parameters": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "A standalone search query capturing what the user "
+                            "wants to find, with pronouns/context resolved from "
+                            "the conversation so far."
+                        ),
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional. Restrict the search to one specific "
+                            "document's UUID, if the user has specified which "
+                            "document to use."
+                        ),
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_uploaded_documents",
+            "description": (
+                "List all documents the user has uploaded, with filename and "
+                "type. Use this when the user asks what files/documents are "
+                "available, or before searching if you're not sure a relevant "
+                "document exists."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+
+def run_agent(hf_client, weaviate_client, embedding_model, session_id, question, document_id=None):
+    """
+    Agentic replacement for the old ask_llm(). The model decides for
+    itself whether it needs to search documents, list documents, or
+    just answer directly.
+
+    Returns (answer_text, sources, retrieval_info) - same shape the
+    /api/chat route already expects, so the frontend contract doesn't
+    change.
+    """
+    messages = (
+        [{"role": "system", "content": SYSTEM_PROMPT}]
+        + _recent_messages_as_chat(session_id)
+        + [{"role": "user", "content": question}]
+    )
+
+    sources = []
+    retrieval_info = {"mode": "agent_no_search"}
+
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        completion = hf_client.chat.completions.create(
+            model=config.CHAT_MODEL,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            temperature=0.6,  # Kimi K2's recommended default
+            max_tokens=400,
+        )
+        choice = completion.choices[0]
+
+        if AGENT_DEBUG:
+            print(f"[agent] iteration {iteration}: finish_reason={choice.finish_reason!r}")
+
+        if choice.finish_reason != "tool_calls" or not choice.message.tool_calls:
+            return choice.message.content.strip(), sources, retrieval_info
+
+        messages.append(choice.message)
+
+        for tool_call in choice.message.tool_calls:
+            name = tool_call.function.name
+            try:
+                args = json.loads(tool_call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+
+            if AGENT_DEBUG:
+                print(f"[agent]   -> calling {name}({args})")
+
+            if name == "search_documents":
+                tool_result, chunks, retrieval_info = _tool_search_documents(
+                    weaviate_client,
+                    embedding_model,
+                    query=args.get("query", question),
+                    document_id=args.get("document_id") or document_id,
+                )
+                if chunks:
+                    sources = _chunks_to_sources(chunks)
+            elif name == "list_uploaded_documents":
+                tool_result = _tool_list_documents(weaviate_client)
+            else:
+                tool_result = {"error": f"Unknown tool '{name}'"}
+
+            if AGENT_DEBUG:
+                print(f"[agent]   <- {name} returned: {json.dumps(tool_result)[:300]}")
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": name,
+                "content": json.dumps(tool_result),
+            })
+
+    # Safety valve: hit the iteration cap without a final answer.
+    return (
+        "I wasn't able to finish researching that in time - could you "
+        "rephrase or narrow the question?",
+        sources,
+        retrieval_info,
+    )
+
+
+# ── Tool implementations ────────────────────────────────────────────
+def _tool_search_documents(weaviate_client, embedding_model, query, document_id=None):
+    chunks, retrieval_info = retrieval_service.retrieve(
+        weaviate_client,
+        embedding_model,
+        query,
+        top_k=SEARCH_TOP_K,
+        document_id=document_id,
+    )
+
+    if not chunks:
+        message = (
+            "No document was specific enough to that query to be trusted."
+            if retrieval_info.get("mode") == "below_threshold"
+            else "No relevant content found in the uploaded documents for this query."
+        )
+        return {"found": False, "message": message}, [], retrieval_info
+
+    tool_result = {
+        "found": True,
+        "filename": retrieval_info.get("filename"),
+        "chunks": [{"content": c["content"], "page_number": c["page_number"]} for c in chunks],
+    }
+    return tool_result, chunks, retrieval_info
+
+
+def _tool_list_documents(weaviate_client):
+    documents = vectorstore.list_documents(weaviate_client)
+    if not documents:
+        return {"documents": [], "message": "No documents have been uploaded yet."}
+    return {
+        "documents": [
+            {"filename": d["filename"], "file_type": d["file_type"], "chunk_count": d["chunk_count"]}
+            for d in documents
+        ]
+    }
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+def _chunks_to_sources(chunks):
+    """Same shape the old ask_llm-based route returned, so the frontend is unaffected."""
+    return [
+        {
+            "content": c["content"],
+            "distance": round(c["_additional"]["distance"], 4),
+            "chunk_index": c["chunk_index"],
+            "filename": c["filename"],
+            "page_number": c["page_number"],
+        }
+        for c in chunks
+    ]
+
+
+def _recent_messages_as_chat(session_id):
+    """
+    Pull recent chat history as plain {role, content} dicts for the
+    model's context window. This is what lets the model resolve
+    follow-up questions ("how many days?") into a good standalone
+    search query itself, without a separate rewrite LLM call.
+    """
+    try:
+        messages = db.get_messages(session_id)
+    except Exception:
+        return []
+
+    trimmed = messages[-MAX_HISTORY_MESSAGES:]
+    return [
+        {"role": m["role"], "content": m["content"]}
+        for m in trimmed
+        if m["role"] in ("user", "assistant")
+    ]
