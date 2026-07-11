@@ -28,7 +28,7 @@ body {
   font-family: var(--font-body);
 }
 
-/* ── Workspace: sidebar + chat, open, no outer frame ─────── */
+/* â”€â”€ Workspace: sidebar + chat, open, no outer frame â”€â”€â”€â”€â”€â”€â”€ */
 .workspace {
   height: 100vh;
   width: 100%;
@@ -45,7 +45,7 @@ body {
 .workspace[data-side="left"] .drag-handle { right: -10px; }
 .workspace[data-side="right"] .drag-handle { left: -10px; }
 
-/* ── Sidebar ──────────────────────────────────────────────── */
+/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar {
   width: 272px;
   flex-shrink: 0;
@@ -126,7 +126,7 @@ body {
 .session-item:hover .session-delete { opacity: 1; }
 .session-delete:hover { color: var(--error); }
 
-/* ── Documents panel ──────────────────────────────────────── */
+/* â”€â”€ Documents panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .documents-section {
   border-top: 1px solid var(--line);
   padding: 14px 18px 16px;
@@ -205,7 +205,7 @@ body {
   letter-spacing: 0.03em;
 }
 
-/* ── Drag handle: grab the panel, drop it on either edge ────── */
+/* â”€â”€ Drag handle: grab the panel, drop it on either edge â”€â”€â”€â”€â”€â”€ */
 .drag-handle {
   position: absolute;
   top: 50%;
@@ -256,7 +256,7 @@ body {
 .dock-right { right: 0; }
 .dock-zone.active { opacity: 0.85; border-color: var(--teal); }
 
-/* ── Chat shell: open, no card/border wrapper ────────────────── */
+/* â”€â”€ Chat shell: open, no card/border wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .chat-shell {
   flex: 1;
   min-width: 0;
@@ -367,7 +367,7 @@ body {
   white-space: pre-wrap;
 }
 
-/* ── Retrieval badge: which document answered this ──────────── */
+/* â”€â”€ Retrieval badge: which document answered this â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .retrieval-block { margin-top: 10px; }
 
 .retrieval-badge {
@@ -443,7 +443,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Evidence ─────────────────────────────────────────────── */
+/* â”€â”€ Evidence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .evidence-toggle {
   margin-top: 12px;
   display: inline-flex;
@@ -553,7 +553,7 @@ body {
   40% { opacity: 1; transform: scale(1); }
 }
 
-/* ── Input bar with attach + send inside a pill ─────────────── */
+/* â”€â”€ Input bar with attach + send inside a pill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .input-bar {
   padding: 14px 32px 22px;
   background: var(--paper);
@@ -627,7 +627,7 @@ body {
   color: var(--paper);
 }
 
-/* ── Strict mode ("Docs only") toggle in the input bar ───────── */
+/* â”€â”€ Strict mode ("Docs only") toggle in the input bar â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .strict-toggle {
   display: inline-flex;
   align-items: center;
@@ -705,7 +705,7 @@ body {
   border: 1px solid #e7c4bb;
 }
 
-/* ── Boot / connection states ────────────────────────────────── */
+/* â”€â”€ Boot / connection states â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .boot-screen {
   height: 100vh;
   width: 100%;
@@ -773,7 +773,7 @@ body {
   line-height: 1;
 }
 
-/* ── Mobile ───────────────────────────────────────────────── */
+/* â”€â”€ Mobile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .mobile-backdrop {
   position: fixed;
   inset: 0;
@@ -801,4 +801,167 @@ body {
 
   .header, .chat-area, .input-bar { padding-left: 16px; padding-right: 16px; }
   .bubble { max-width: 90%; }
+}
+/* â”€â”€ Header: logout / user email â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.header-spacer {
+  flex: 1;
+}
+
+.user-email {
+  font-size: 13px;
+  color: var(--ink-soft);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.logout-btn {
+  align-self: center;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.logout-btn:hover {
+  border-color: var(--ink);
+}
+
+/* â”€â”€ Auth screen (login / register) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.auth-card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  text-align: left;
+}
+
+.auth-card .eyebrow,
+.auth-card h1 {
+  text-align: center;
+}
+
+.auth-subtitle {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.auth-input {
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+}
+.auth-input:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+
+.auth-error {
+  color: var(--error);
+  font-size: 13px;
+  margin: 0;
+}
+
+.auth-submit {
+  margin-top: 6px;
+  padding: 11px 18px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-toggle {
+  margin-top: 4px;
+  background: none;
+  border: none;
+  color: var(--teal);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* â”€â”€ Password visibility toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.password-field {
+  position: relative;
+  display: flex;
+}
+.password-field .auth-input {
+  flex: 1;
+  padding-right: 42px;
+}
+.password-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 6px;
+}
+.password-toggle:hover {
+  color: var(--ink);
+}
+
+/* â”€â”€ Verify-pending screen (blocks entry until email is verified) â”€â”€ */
+.verify-pending-text {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 4px;
+  line-height: 1.5;
+}
+.verify-pending-hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 0 0 8px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+/* â”€â”€ Verify-email toast (from the emailed link) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.verify-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(27, 36, 48, 0.14);
+}
+.verify-toast.ok {
+  background: var(--teal-soft);
+  color: var(--teal);
+  border: 1px solid #cfe3e0;
+}
+.verify-toast.err {
+  background: var(--error-soft);
+  color: var(--error);
+  border: 1px solid #e7c4bb;
 }

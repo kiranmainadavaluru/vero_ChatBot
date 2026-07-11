@@ -12,3 +12,4 @@ xlrd
 python-pptx
 beautifulsoup4
 psycopg2-binary
+PyJWT

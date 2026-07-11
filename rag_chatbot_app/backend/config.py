@@ -48,3 +48,28 @@ POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "rag_chatbot")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "rag_user")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "rag_password")
+
+# ── Auth (JWT) ───────────────────────────────────────────────
+# JWT_SECRET_KEY MUST be overridden via .env in any real deployment -
+# the fallback below is only so the app doesn't crash on a fresh
+# clone. Generate one with: python -c "import secrets; print(secrets.token_hex(32))"
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-only-insecure-secret-change-me")
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", 24 * 7))  # 7 days
+
+# ── Email verification ──────────────────────────────────────
+# Where the verification link in the email should point - the
+# frontend dev server by default. The frontend reads ?verify_token=
+# off this URL on load and calls POST /api/auth/verify-email.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+EMAIL_VERIFICATION_EXPIRY_HOURS = int(os.getenv("EMAIL_VERIFICATION_EXPIRY_HOURS", 24))
+
+# SMTP is optional. If SMTP_HOST isn't set, email_service.py falls
+# back to printing the verification link to the backend console -
+# handy for local dev with zero email setup. Set these to actually
+# send mail (e.g. Gmail: smtp.gmail.com, port 587, an App Password
+# as SMTP_PASSWORD - not your real Gmail password).
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "no-reply@vero.local")

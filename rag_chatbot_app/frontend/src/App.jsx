@@ -1,18 +1,125 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
 const API_BASE = 'http://127.0.0.1:8000/api'
+const TOKEN_KEY = 'vero_token'
+const USER_KEY = 'vero_user'
+
+// ─────────────────────────────────────────────────────────────
+// Auth storage + fetch wrapper
+// ─────────────────────────────────────────────────────────────
+function getToken() {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+function storeAuth(token, user) {
+  localStorage.setItem(TOKEN_KEY, token)
+  localStorage.setItem(USER_KEY, JSON.stringify(user))
+}
+
+function clearAuth() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
+}
+
+function getStoredUser() {
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+// Wraps fetch() with the Authorization header + a shared 401 handler.
+// On an expired/invalid token it clears storage and tells the app
+// (via a window event) to fall back to the login screen, instead of
+// every caller having to check for 401 individually.
+async function authFetch(path, options = {}) {
+  const token = getToken()
+  const headers = { ...(options.headers || {}) }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  if (res.status === 401) {
+    clearAuth()
+    window.dispatchEvent(new Event('auth:expired'))
+  }
+  return res
+}
+
+async function apiRegister(email, password, name) {
+  let res
+  try {
+    res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name })
+    })
+  } catch {
+    throw new Error(`Couldn't reach the backend. Is it running at ${API_BASE}?`)
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Could not create your account.')
+  return data // { token, user }
+}
+
+async function apiLogin(email, password) {
+  let res
+  try {
+    res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    })
+  } catch {
+    throw new Error(`Couldn't reach the backend. Is it running at ${API_BASE}?`)
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Could not log you in.')
+  return data // { token, user }
+}
+
+async function apiVerifyEmail(token) {
+  let res
+  try {
+    res = await fetch(`${API_BASE}/auth/verify-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    })
+  } catch {
+    throw new Error(`Couldn't reach the backend. Is it running at ${API_BASE}?`)
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Could not verify this email.')
+  return data // { verified, already, user }
+}
+
+async function apiResendVerification() {
+  const res = await authFetch('/auth/resend-verification', { method: 'POST' })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Could not resend the verification email.')
+  return data
+}
+
+async function apiMe() {
+  const res = await authFetch('/auth/me')
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Could not check your account.')
+  return data // user
+}
 
 // ─────────────────────────────────────────────────────────────
 // API helpers
 // ─────────────────────────────────────────────────────────────
 async function apiListSessions() {
-  const res = await fetch(`${API_BASE}/sessions`)
+  const res = await authFetch('/sessions')
   if (!res.ok) throw new Error('Could not load your conversations.')
   return res.json()
 }
 
 async function apiCreateSession() {
-  const res = await fetch(`${API_BASE}/sessions`, {
+  const res = await authFetch('/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({})
@@ -22,18 +129,18 @@ async function apiCreateSession() {
 }
 
 async function apiGetMessages(sessionId) {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`)
+  const res = await authFetch(`/sessions/${sessionId}/messages`)
   if (!res.ok) throw new Error('Could not load this conversation.')
   return res.json()
 }
 
 async function apiDeleteSession(sessionId) {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: 'DELETE' })
+  const res = await authFetch(`/sessions/${sessionId}`, { method: 'DELETE' })
   if (!res.ok && res.status !== 404) throw new Error('Could not delete this conversation.')
 }
 
 async function apiListDocuments() {
-  const res = await fetch(`${API_BASE}/documents`)
+  const res = await authFetch('/documents')
   if (!res.ok) throw new Error('Could not load documents.')
   return res.json()
 }
@@ -41,7 +148,7 @@ async function apiListDocuments() {
 async function apiUploadFiles(files) {
   const formData = new FormData()
   for (const f of files) formData.append('files', f)
-  const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData })
+  const res = await authFetch('/upload', { method: 'POST', body: formData })
   const data = await res.json()
   if (!res.ok && (!data.uploaded || data.uploaded.length === 0) && (!data.errors || data.errors.length === 0)) {
     throw new Error(data.error || 'Upload failed.')
@@ -50,7 +157,7 @@ async function apiUploadFiles(files) {
 }
 
 async function apiDeleteDocument(documentId) {
-  const res = await fetch(`${API_BASE}/documents/${documentId}`, { method: 'DELETE' })
+  const res = await authFetch(`/documents/${documentId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Could not delete this document.')
 }
 
@@ -323,9 +430,190 @@ function Sidebar({
 }
 
 // ─────────────────────────────────────────────────────────────
-// App
+// Auth screen (login + register, toggled)
 // ─────────────────────────────────────────────────────────────
-export default function App() {
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState('login') // 'login' | 'register'
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [error, setError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError(null)
+    setSubmitting(true)
+    try {
+      const data = mode === 'login'
+        ? await apiLogin(email.trim(), password)
+        : await apiRegister(email.trim(), password, name.trim())
+      storeAuth(data.token, data.user)
+      // The parent (App) checks data.user.email_verified and routes to
+      // the verify-pending screen instead of the chat UI if needed -
+      // this component doesn't need to know about that.
+      onAuthenticated(data.user)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="boot-screen">
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <span className="eyebrow">your document assistant</span>
+        <h1>Vero</h1>
+        <p className="auth-subtitle">
+          {mode === 'login' ? 'Log in to your account' : 'Create an account'}
+        </p>
+
+        {mode === 'register' && (
+          <input
+            className="auth-input"
+            type="text"
+            placeholder="Name (optional)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="name"
+          />
+        )}
+        <input
+          className="auth-input"
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          required
+        />
+        <div className="password-field">
+          <input
+            className="auth-input"
+            type={showPassword ? 'text' : 'password'}
+            placeholder={mode === 'register' ? 'Password (min. 8 characters)' : 'Password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            minLength={mode === 'register' ? 8 : undefined}
+            required
+          />
+          <button
+            type="button"
+            className="password-toggle"
+            onClick={() => setShowPassword((s) => !s)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? 'Hide password' : 'Show password'}
+            tabIndex={-1}
+          >
+            {showPassword ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {error && <p className="auth-error">{error}</p>}
+
+        <button className="auth-submit" type="submit" disabled={submitting}>
+          {submitting ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Sign up'}
+        </button>
+
+        <button
+          type="button"
+          className="auth-toggle"
+          onClick={() => { setMode((m) => (m === 'login' ? 'register' : 'login')); setError(null) }}
+        >
+          {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// VerifyPendingScreen - shown after login/register instead of the
+// chat UI whenever user.email_verified is false. Blocks entry until
+// the person either clicks the emailed link (handled by App, which
+// re-renders this away once verified) or hits "I've verified" to
+// re-check.
+// ─────────────────────────────────────────────────────────────
+function VerifyPendingScreen({ user, onVerified, onLogout }) {
+  const [resendState, setResendState] = useState('idle') // 'idle' | 'sending' | 'sent' | 'error'
+  const [checkState, setCheckState] = useState('idle')   // 'idle' | 'checking' | 'not_yet' | 'error'
+
+  async function handleResend() {
+    setResendState('sending')
+    try {
+      await apiResendVerification()
+      setResendState('sent')
+    } catch {
+      setResendState('error')
+    }
+  }
+
+  async function handleCheckAgain() {
+    setCheckState('checking')
+    try {
+      const freshUser = await apiMe()
+      if (freshUser.email_verified) {
+        storeAuth(getToken(), freshUser)
+        onVerified(freshUser)
+      } else {
+        setCheckState('not_yet')
+      }
+    } catch {
+      setCheckState('error')
+    }
+  }
+
+  return (
+    <div className="boot-screen">
+      <div className="auth-card">
+        <span className="eyebrow">your document assistant</span>
+        <h1>Vero</h1>
+        <p className="auth-subtitle">Verify your email to continue</p>
+        <p className="verify-pending-text">
+          We sent a verification link to <strong>{user.email}</strong>. Open it, then come back
+          here and hit "I've verified".
+        </p>
+        <p className="verify-pending-hint">
+          Didn't get it? If SMTP isn't configured on the backend yet, check the backend's
+          terminal output instead - the link gets printed there in dev mode.
+        </p>
+
+        <button className="auth-submit" type="button" onClick={handleCheckAgain} disabled={checkState === 'checking'}>
+          {checkState === 'checking' ? 'Checking…' : "I've verified, continue"}
+        </button>
+        {checkState === 'not_yet' && <p className="auth-error">Still not verified - try opening the link first.</p>}
+        {checkState === 'error' && <p className="auth-error">Couldn't check right now. Try again in a moment.</p>}
+
+        <button type="button" className="auth-toggle" onClick={handleResend} disabled={resendState === 'sending'}>
+          {resendState === 'sending' ? 'Sending…' : resendState === 'sent' ? 'Sent - resend again?' : 'Resend verification email'}
+        </button>
+        {resendState === 'error' && <p className="auth-error">Could not resend. Try again shortly.</p>}
+
+        <button type="button" className="auth-toggle" onClick={onLogout}>
+          Log out
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// ChatApp - everything that used to be App(), now gated behind auth
+// ─────────────────────────────────────────────────────────────
+function ChatApp({ user, onLogout }) {
   const [sessions, setSessions] = useState([])   // [{id, title, messages: null|array, created_at, updated_at}]
   const [activeId, setActiveId] = useState(null)
   const [input, setInput] = useState('')
@@ -504,7 +792,7 @@ export default function App() {
     setLoadingSessionId(targetId)
 
     try {
-      const res = await fetch(`${API_BASE}/chat`, {
+      const res = await authFetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, session_id: targetId, strict_mode: strictMode })
@@ -627,6 +915,11 @@ export default function App() {
           </button>
           <span className="eyebrow">your document assistant</span>
           <h1>Vero</h1>
+          <div className="header-spacer" />
+          {user && <span className="user-email" title={user.email}>{user.name || user.email}</span>}
+          <button className="logout-btn" onClick={onLogout} title="Log out">
+            Log out
+          </button>
         </header>
 
         {actionError && (
@@ -738,5 +1031,86 @@ export default function App() {
         </form>
       </main>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// App - top-level auth gate. Renders the login/register screen
+// until a token exists, then hands off to ChatApp.
+// ─────────────────────────────────────────────────────────────
+export default function App() {
+  const [user, setUser] = useState(() => (getToken() ? getStoredUser() : null))
+  const [verifyNotice, setVerifyNotice] = useState(null) // { type: 'ok'|'err', text }
+
+  // authFetch fires this from anywhere (sessions, chat, upload, ...)
+  // whenever the server says the token is invalid/expired, so a
+  // single listener here is enough to bounce back to the login screen.
+  useEffect(() => {
+    function handleExpired() { setUser(null) }
+    window.addEventListener('auth:expired', handleExpired)
+    return () => window.removeEventListener('auth:expired', handleExpired)
+  }, [])
+
+  // Handles the link from the verification email: /?verify_token=...
+  // Runs once on load regardless of login state - the token alone is
+  // enough to verify, no auth header needed. If the verified email
+  // matches whoever's currently logged in (e.g. same browser), also
+  // clear their "please verify" banner without a page reload.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('verify_token')
+    if (!token) return
+
+    // Strip it right away so a refresh doesn't try to re-verify a
+    // token that's already been consumed.
+    params.delete('verify_token')
+    const query = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (query ? `?${query}` : ''))
+
+    apiVerifyEmail(token)
+      .then((data) => {
+        setVerifyNotice({
+          type: 'ok',
+          text: data.already ? 'This email was already verified.' : 'Email verified! You’re all set.'
+        })
+        setUser((prev) => {
+          if (!prev || prev.email !== data.user.email) return prev
+          const updated = { ...prev, email_verified: true }
+          storeAuth(getToken(), updated)
+          return updated
+        })
+      })
+      .catch((err) => {
+        setVerifyNotice({ type: 'err', text: err.message })
+      })
+      .finally(() => {
+        setTimeout(() => setVerifyNotice(null), 6000)
+      })
+  }, [])
+
+  function handleLogout() {
+    clearAuth()
+    setUser(null)
+  }
+
+  function renderScreen() {
+    if (!user) return <AuthScreen onAuthenticated={setUser} />
+    if (!user.email_verified) {
+      return <VerifyPendingScreen user={user} onVerified={setUser} onLogout={handleLogout} />
+    }
+    // key={user.id} forces ChatApp to remount on login/logout so its
+    // internal state (sessions, activeId, etc.) never leaks between accounts.
+    return <ChatApp key={user.id} user={user} onLogout={handleLogout} />
+  }
+
+  return (
+    <>
+      {verifyNotice && (
+        <div className={`verify-toast ${verifyNotice.type === 'err' ? 'err' : 'ok'}`}>
+          {verifyNotice.text}
+        </div>
+      )}
+      {renderScreen()}
+    </>
   )
 }
