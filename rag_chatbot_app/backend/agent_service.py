@@ -221,11 +221,14 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
                 "content": json.dumps(tool_result),
             })
 
-    # Safety valve: hit the iteration cap without a final answer.
+    # Safety valve: hit the iteration cap without a final answer. `sources`
+    # may hold chunks from an earlier successful search_documents call, but
+    # since no answer was ever generated from them, returning them here
+    # would falsely imply this fallback message was grounded on them.
     return (
         "I wasn't able to finish researching that in time - could you "
         "rephrase or narrow the question?",
-        sources,
+        [],
         retrieval_info,
     )
 

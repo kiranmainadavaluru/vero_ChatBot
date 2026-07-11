@@ -27,7 +27,14 @@ search alone was letting queries like "day 2" match almost any chunk
 that merely *looked* like a checklist entry, without the actual "Day
 2" chunk ranking anywhere near the top.
 """
+import re
+
 import vectorstore
+
+# Matches "day 2", "Day2", "day  12" etc. in the user's question.
+_DAY_QUERY_RE = re.compile(r"\bday\s*(\d+)\b", re.IGNORECASE)
+# Matches the "### Day 2:" heading style used in this checklist's chunks.
+_DAY_CONTENT_RE = re.compile(r"###\s*Day\s*(\d+)\b", re.IGNORECASE)
 
 # How many candidates to pull before grouping by document. This needs
 # to be comfortably larger than top_k, otherwise a single stray
@@ -76,6 +83,8 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
     if not candidates:
         return [], {"mode": "no_results"}
 
+    candidates = _boost_exact_day_match(question, candidates)
+
     ranked_documents = _rank_documents_by_relevance(candidates)
     best_document = ranked_documents[0]
     best_document_id = best_document["document_id"]
@@ -98,6 +107,29 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
         "filename": routed_chunks[0]["filename"] if routed_chunks else None,
         "candidate_documents": ranked_documents,
     }
+
+
+def _boost_exact_day_match(question, candidates):
+    """
+    Hybrid search (BM25 + vector) still ranks same-template "Day N"
+    chunks close together, since every day shares identical headings
+    ("Learn / Build / Interview Q"). If the question names an exact
+    day number, move any chunk whose own heading has that exact
+    number to the front of the pool, ahead of the fused hybrid score -
+    this only reorders candidates already returned, so the relevance
+    threshold and document-routing logic downstream are unaffected.
+    """
+    m = _DAY_QUERY_RE.search(question)
+    if not m:
+        return candidates
+    wanted_day = m.group(1)
+
+    exact, rest = [], []
+    for c in candidates:
+        cm = _DAY_CONTENT_RE.search(c["content"])
+        (exact if cm and cm.group(1) == wanted_day else rest).append(c)
+
+    return exact + rest if exact else candidates
 
 
 def _rank_documents_by_relevance(candidates):
