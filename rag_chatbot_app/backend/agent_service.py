@@ -133,7 +133,7 @@ TOOLS = [
 ]
 
 
-def run_agent(hf_client, weaviate_client, embedding_model, session_id, question, document_id=None, strict_mode=False):
+def run_agent(hf_client, qdrant_client, embedding_model, session_id, question, document_id=None, strict_mode=False):
     """
     Agentic replacement for the old ask_llm(). The model decides for
     itself whether it needs to search documents, list documents, or
@@ -195,7 +195,7 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
 
             if name == "search_documents":
                 tool_result, chunks, retrieval_info = _tool_search_documents(
-                    weaviate_client,
+                    qdrant_client,
                     embedding_model,
                     query=args.get("query", question),
                     document_id=args.get("document_id") or document_id,
@@ -221,7 +221,7 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
                         {**retrieval_info, "strict_blocked": True},
                     )
             elif name == "list_uploaded_documents":
-                tool_result = _tool_list_documents(weaviate_client)
+                tool_result = _tool_list_documents(qdrant_client)
             else:
                 tool_result = {"error": f"Unknown tool '{name}'"}
 
@@ -248,9 +248,9 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
 
 
 # ── Tool implementations ────────────────────────────────────────────
-def _tool_search_documents(weaviate_client, embedding_model, query, document_id=None):
+def _tool_search_documents(qdrant_client, embedding_model, query, document_id=None):
     chunks, retrieval_info = retrieval_service.retrieve(
-        weaviate_client,
+        qdrant_client,
         embedding_model,
         query,
         top_k=SEARCH_TOP_K,
@@ -273,8 +273,8 @@ def _tool_search_documents(weaviate_client, embedding_model, query, document_id=
     return tool_result, chunks, retrieval_info
 
 
-def _tool_list_documents(weaviate_client):
-    documents = vectorstore.list_documents(weaviate_client)
+def _tool_list_documents(qdrant_client):
+    documents = vectorstore.list_documents(qdrant_client)
     if not documents:
         return {"documents": [], "message": "No documents have been uploaded yet."}
     return {

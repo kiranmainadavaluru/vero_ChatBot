@@ -16,9 +16,21 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOCUMENTS_DIR = os.path.join(BASE_DIR, "documents")
 os.makedirs(DOCUMENTS_DIR, exist_ok=True)
 
-# ── Weaviate ─────────────────────────────────────────────────
-WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
-WEAVIATE_CLASS_NAME = "DocumentChunk"
+# ── Qdrant (vector store) ───────────────────────────────────
+# QDRANT_URL: self-hosted default (e.g. local Docker) is
+# http://localhost:6333. For Qdrant Cloud, use the cluster URL from
+# your dashboard (https://xxxxx.cloud.qdrant.io) and set
+# QDRANT_API_KEY - self-hosted instances with no auth configured
+# don't need an API key.
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+QDRANT_COLLECTION_NAME = "DocumentChunk"
+# all-MiniLM-L6-v2 (the EMBEDDING_MODEL_NAME default above) outputs
+# 384-dim vectors. If you change EMBEDDING_MODEL_NAME to a model with
+# a different output size, update this to match, and re-ingest your
+# documents - Qdrant collections are created with a fixed vector size
+# and can't have it changed after the fact.
+EMBEDDING_DIMENSIONS = 384
 
 # ── Embedding model ──────────────────────────────────────────
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
