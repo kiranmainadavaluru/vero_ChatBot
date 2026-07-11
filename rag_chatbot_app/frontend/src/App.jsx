@@ -95,6 +95,21 @@ function RetrievalBadge({ retrieval }) {
   const [showCandidates, setShowCandidates] = useState(false)
   if (!retrieval) return null
 
+  // Docs-only mode found nothing and refused to answer instead of
+  // falling back to general knowledge - the opposite of the branch
+  // below, so it needs its own badge rather than falling into the
+  // "no filename" -> general-knowledge case.
+  if (retrieval.strict_blocked) {
+    return (
+      <div className="retrieval-block">
+        <span className="retrieval-badge docs-only-blocked">
+          <span className="retrieval-dot docs-only-blocked-dot" />
+          docs only · nothing relevant found, general knowledge not used
+        </span>
+      </div>
+    )
+  }
+
   // No filename means the agent never grounded this answer in a document -
   // either it didn't search at all, or the best match was too weak to trust.
   // Show that plainly instead of staying silent, so it's obvious this
@@ -328,10 +343,23 @@ export default function App() {
   const scrollRef = useRef(null)
   const isDraggingRef = useRef(false)
   const attachInputRef = useRef(null)
+  const chatInputRef = useRef(null)
 
   const activeSession = sessions.find((s) => s.id === activeId) ?? null
   const loading = loadingSessionId === activeId
   const messagesLoading = messagesLoadingId === activeId
+
+  // The text input is `disabled` while `loading` is true (so people can't
+  // send a second question mid-request) - but a disabled input can't hold
+  // focus, so the browser blurs it the instant a question is sent. Nothing
+  // was refocusing it once the answer came back and it re-enabled, so the
+  // cursor just vanished until you clicked the box again. Re-focus it every
+  // time loading finishes.
+  useEffect(() => {
+    if (!loading) {
+      chatInputRef.current?.focus()
+    }
+  }, [loading])
 
   // ── Load existing conversations on mount instead of starting empty ──
   useEffect(() => {
@@ -685,6 +713,7 @@ export default function App() {
                 Docs only
               </button>
               <input
+                ref={chatInputRef}
                 type="text"
                 className="text-input"
                 value={input}

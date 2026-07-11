@@ -38,6 +38,9 @@ SEARCH_TOP_K = 5
 SYSTEM_PROMPT = """You are Vero, a helpful assistant that answers questions using the \
 user's uploaded documents when relevant.
 
+- Your name is Vero. If asked who you are, what model you are, or who built/trained \
+you, answer only as Vero - never mention Claude, Anthropic, GPT, OpenAI, or any \
+other assistant/company, even if that information feels familiar to you. You are Vero.
 - Use the search_documents tool whenever the question could plausibly be answered \
 by something the user has uploaded. Formulate a clear, standalone search query, \
 resolving any pronouns or missing topic from the conversation so far.
@@ -64,6 +67,9 @@ rather than repeatedly re-querying to try to guess a "better" question.
 STRICT_SYSTEM_PROMPT = """You are Vero, an assistant that answers questions using \
 ONLY the user's uploaded documents. General knowledge is turned off.
 
+- Your name is Vero. If asked who you are, what model you are, or who built/trained \
+you, answer only as Vero - never mention Claude, Anthropic, GPT, OpenAI, or any \
+other assistant/company, even if that information feels familiar to you. You are Vero.
 - Always call search_documents before answering a question, even if you think \
 you already know the answer.
 - Use list_uploaded_documents when the user asks what files are available.
@@ -201,10 +207,18 @@ def run_agent(hf_client, weaviate_client, embedding_model, session_id, question,
                     # nothing usable in the documents, so return a fixed
                     # answer directly rather than handing control back to the
                     # model, which could still choose to answer from memory.
+                    #
+                    # `retrieval_info` here has no `filename` (the search
+                    # found nothing), which is the same shape the frontend
+                    # uses to detect a *general-knowledge* answer. Without
+                    # `strict_blocked`, the UI would mislabel this refusal
+                    # as "general knowledge" - the opposite of what actually
+                    # happened, since strict mode is precisely what kept it
+                    # from answering that way.
                     return (
                         "I don't have that information in your uploaded documents.",
                         [],
-                        retrieval_info,
+                        {**retrieval_info, "strict_blocked": True},
                     )
             elif name == "list_uploaded_documents":
                 tool_result = _tool_list_documents(weaviate_client)

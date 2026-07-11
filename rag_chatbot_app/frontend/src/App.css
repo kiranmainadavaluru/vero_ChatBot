@@ -389,6 +389,12 @@ body {
 .retrieval-badge.general-knowledge { color: var(--amber); cursor: default; }
 .retrieval-dot.general-knowledge-dot { background: var(--amber); }
 
+/* Distinct look for docs-only refusals - deliberately NOT the amber
+   "general knowledge" styling above, since this is the opposite case:
+   the answer was blocked from using general knowledge. */
+.retrieval-badge.docs-only-blocked { color: var(--error); cursor: default; }
+.retrieval-dot.docs-only-blocked-dot { background: var(--error); }
+
 .retrieval-dot {
   width: 6px;
   height: 6px;
