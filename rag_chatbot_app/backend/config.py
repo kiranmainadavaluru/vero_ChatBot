@@ -36,8 +36,16 @@ EMBEDDING_DIMENSIONS = 384
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 
 # ── Chat / LLM ───────────────────────────────────────────────
-HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-CHAT_MODEL = os.getenv("CHAT_MODEL", "moonshotai/Kimi-K2-Instruct-0905")
+# Switched from the HuggingFace Inference Providers router (Kimi K2)
+# to Google AI Studio's Gemini API, since HF's free monthly inference
+# credits were exhausted. Gemini exposes an OpenAI-compatible endpoint
+# (https://ai.google.dev/gemini-api/docs/openai), so the `openai`
+# SDK's `chat.completions.create(...)` call in agent_service.py works
+# unchanged - only the client construction in app.py differs.
+# Get a free key from https://aistudio.google.com/apikey
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-flash-latest")
 
 # ── Chunking ─────────────────────────────────────────────────
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 500))

@@ -7,7 +7,7 @@ import psycopg2.errors
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
-from huggingface_hub import InferenceClient
+from openai import OpenAI
 
 import config
 import vectorstore
@@ -22,7 +22,10 @@ app = Flask(__name__)
 CORS(app)  # allow the React dev server to call this API
 
 embedding_model = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
-hf_client = InferenceClient(api_key=config.HUGGINGFACEHUB_API_TOKEN)
+# Points the OpenAI SDK at Gemini's OpenAI-compatible endpoint instead
+# of api.openai.com - agent_service.py's chat.completions.create(...)
+# call needed zero changes for this swap.
+llm_client = OpenAI(api_key=config.GEMINI_API_KEY, base_url=config.GEMINI_BASE_URL)
 qdrant_client = None  # set up on startup, see bottom of file
 db_ready = False  # set True once PostgreSQL schema is confirmed, see bottom of file
 
@@ -285,7 +288,7 @@ def chat():
             db.rename_session_if_default(session_id, _title_from_question(question))
 
         answer, sources, retrieval_info = agent_service.run_agent(
-            hf_client,
+            llm_client,
             qdrant_client,
             embedding_model,
             session_id,

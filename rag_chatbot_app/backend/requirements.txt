@@ -7,7 +7,7 @@ sentence-transformers
 weaviate-client>=3.24,<4  # TODO: remove once Qdrant migration is confirmed working end-to-end
 qdrant-client
 fastembed  # required for client-side BM25 sparse vectors (qdrant-client doesn't pull this in automatically)
-huggingface_hub
+openai  # OpenAI SDK, pointed at Gemini's OpenAI-compatible endpoint (see config.py GEMINI_BASE_URL)
 python-docx
 openpyxl
 xlrd

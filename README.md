@@ -68,7 +68,7 @@ The system uses **Retrieval-Augmented Generation (RAG)** to combine document ret
 | Vector Database | Weaviate |
 | SQL Database | PostgreSQL |
 | Embeddings | Sentence Transformers (all-MiniLM-L6-v2) |
-| LLM | Hugging Face Inference API |
+| LLM | Google Gemini (OpenAI-compatible API) |
 | Document Processing | PyPDF2, python-docx, openpyxl, python-pptx, BeautifulSoup4 |
 
 ### Frontend
@@ -152,7 +152,7 @@ pip install -r requirements.txt
 | langchain-text-splitters | Latest | Document chunking |
 | sentence-transformers | Latest | Text embeddings |
 | weaviate-client | >=3.24, <4 | Vector database client |
-| huggingface_hub | Latest | HF model access |
+| openai | Latest | Gemini access (OpenAI-compatible client) |
 | python-docx | Latest | DOCX processing |
 | openpyxl | Latest | Excel processing |
 | xlrd | Latest | Excel reading |
@@ -235,14 +235,14 @@ DATABASE_URL=postgresql://user:password@localhost:5432/rag_chatbot
 # Weaviate Vector Database
 WEAVIATE_URL=http://localhost:8080
 
-# Hugging Face API
-HF_API_TOKEN=your_huggingface_api_token_here
+# Gemini API (Google AI Studio - free key at https://aistudio.google.com/apikey)
+GEMINI_API_KEY=your_gemini_api_key_here
 
 # Embedding Model
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 
 # LLM Model
-LLM_MODEL=moonshotai/Kimi-K2-Instruct-0905
+LLM_MODEL=gemini-2.5-flash
 
 # CORS Settings
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000

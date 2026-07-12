@@ -7,10 +7,10 @@ to search the uploaded documents, list what's available, or just
 answer directly - the same way you'd expect a competent assistant to
 reason about it, rather than us hard-coding "if chunks: ... else: ...".
 
-Kimi-K2-Instruct-0905 has native OpenAI-compatible tool calling, and
-huggingface_hub.InferenceClient passes `tools`/`tool_choice` straight
-through - so this needs no new dependencies beyond what's already in
-requirements.txt.
+Uses the OpenAI-compatible chat.completions API (currently pointed at
+Google Gemini via config.GEMINI_BASE_URL - see app.py). Any provider
+exposing that same interface (OpenAI itself, Gemini, or HF's router)
+works here unchanged; only the client construction in app.py differs.
 
 The underlying retrieval logic (document routing, the relevance
 distance threshold, explicit document_id scoping) is untouched and
@@ -133,7 +133,7 @@ TOOLS = [
 ]
 
 
-def run_agent(hf_client, qdrant_client, embedding_model, session_id, question, document_id=None, strict_mode=False):
+def run_agent(llm_client, qdrant_client, embedding_model, session_id, question, document_id=None, strict_mode=False):
     """
     Agentic replacement for the old ask_llm(). The model decides for
     itself whether it needs to search documents, list documents, or
@@ -161,7 +161,7 @@ def run_agent(hf_client, qdrant_client, embedding_model, session_id, question, d
         # its first turn - that's the other way it was reaching general
         # knowledge (never calling search_documents at all).
         force_search = strict_mode and iteration == 0
-        completion = hf_client.chat.completions.create(
+        completion = llm_client.chat.completions.create(
             model=config.CHAT_MODEL,
             messages=messages,
             tools=TOOLS,
@@ -170,7 +170,7 @@ def run_agent(hf_client, qdrant_client, embedding_model, session_id, question, d
                 if force_search
                 else "auto"
             ),
-            temperature=0.6,  # Kimi K2's recommended default
+            temperature=0.6,
             max_tokens=400,
         )
         choice = completion.choices[0]
