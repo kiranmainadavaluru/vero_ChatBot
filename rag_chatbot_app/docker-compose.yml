@@ -21,10 +21,13 @@ services:
 
   backend:
     build: ./backend
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "8000:8000"
     environment:
-      QDRANT_URL: http://qdrant:6333
+      # QDRANT_URL: http://qdrant:6333
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: rag_chatbot
