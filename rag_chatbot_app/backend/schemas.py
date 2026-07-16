@@ -77,6 +77,7 @@ class RetrievalInfo(BaseModel):
     best_score: Optional[float] = None
     threshold: Optional[float] = None
     strict_blocked: Optional[bool] = None
+    injection_blocked: Optional[bool] = None
     # candidate_documents / other debug-only keys are intentionally
     # left out of the strict schema for now — see main.py note in
     # the /api/chat handler for why they're re-attached loosely.

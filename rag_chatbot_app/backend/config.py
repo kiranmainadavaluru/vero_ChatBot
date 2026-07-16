@@ -85,6 +85,23 @@ JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", 24 * 7))  # 7 days
 # fallback if the Crew path misbehaves in front of an interviewer.
 USE_CREW = os.getenv("USE_CREW", "false").lower() == "true"
 
+# ── PII scrubbing on ingestion (Day 6) ──────────────────────
+# See pii_service.py for the entity list and the reasoning behind
+# what's included/excluded from redaction by default.
+ENABLE_PII_SCRUBBING = os.getenv("ENABLE_PII_SCRUBBING", "true").lower() == "true"
+# 0.4, not the more obvious-looking 0.5: Presidio's PHONE_NUMBER
+# recognizer's base confidence is exactly 0.4 (confirmed empirically -
+# the context-word bonus for nearby words like "call"/"phone" did not
+# raise it in testing), so 0.5 would silently drop every phone number.
+# 0.4 still excludes Presidio's "very weak" (0.05) catch-all patterns,
+# e.g. the bare 9-digit-number SSN pattern, which at full weight would
+# flag most invoice/account numbers as SSNs.
+PII_SCORE_THRESHOLD = float(os.getenv("PII_SCORE_THRESHOLD", 0.4))
+
+# ── Prompt-injection pattern guard on chat input (Day 6) ────
+# See prompt_guard.py for what this does and doesn't catch.
+ENABLE_PROMPT_INJECTION_GUARD = os.getenv("ENABLE_PROMPT_INJECTION_GUARD", "true").lower() == "true"
+
 # ── Email verification ──────────────────────────────────────
 # Where the verification link in the email should point - the
 # frontend dev server by default. The frontend reads ?verify_token=

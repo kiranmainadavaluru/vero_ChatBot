@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 import config
 import document_loaders
 import chunking
+import pii_service
 import vectorstore
 
 
@@ -64,6 +65,16 @@ def ingest_saved_file(client, embedding_model, file_path, original_filename=None
 
     if not chunks:
         raise ValueError(f"No extractable text found in '{original_filename}'.")
+
+    # PII scrubbing runs before embedding, not after - the point is
+    # that raw PII never gets turned into a vector or stored in
+    # Qdrant in the first place, not that it's hidden after the fact.
+    # See pii_service.py for entity selection and score-threshold
+    # reasoning. No-ops entirely when config.ENABLE_PII_SCRUBBING is
+    # False.
+    chunks, redacted_count = pii_service.scrub_chunks(chunks)
+    if redacted_count:
+        print(f"🔒 PII scrubbed from {redacted_count}/{len(chunks)} chunk(s) in '{original_filename}'")
 
     chunk_texts = [c["content"] for c in chunks]
     embeddings = embedding_model.encode(chunk_texts, show_progress_bar=False, batch_size=32)

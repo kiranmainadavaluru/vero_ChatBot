@@ -40,6 +40,7 @@ import vectorstore
 import agent_service
 import crew_service
 import upload_service
+import prompt_guard
 import db
 import auth
 import email_service
@@ -290,6 +291,30 @@ def chat(body: ChatRequest, current=Depends(get_current_user)):
         db.add_message(body.session_id, "user", body.question)
         if session["title"] == "New chat":
             db.rename_session_if_default(body.session_id, _title_from_question(body.question))
+
+        # Prompt-injection pattern check (Day 6) — a code-level
+        # short-circuit before the question ever reaches the LLM, same
+        # reasoning as the strict_mode short-circuit below: a pattern
+        # match here is a guarantee, not a hope that the model notices
+        # and declines on its own. See prompt_guard.py for what this
+        # does and doesn't catch (it's a first line of defense, not a
+        # complete one).
+        if config.ENABLE_PROMPT_INJECTION_GUARD:
+            guard_result = prompt_guard.check_prompt_injection(body.question)
+            if guard_result["flagged"]:
+                answer = (
+                    "I can't act on instructions embedded in a message that try to "
+                    "override how I'm configured to behave. Feel free to rephrase your "
+                    "question about the uploaded documents."
+                )
+                retrieval_info = {
+                    "mode": "blocked",
+                    "injection_blocked": True,
+                    "matched_patterns": guard_result["matched_patterns"],
+                }
+                db.add_message(body.session_id, "assistant", answer, sources=[], retrieval=retrieval_info)
+                db.touch_session(body.session_id)
+                return ChatResponse(answer=answer, sources=[], retrieval=retrieval_info, session_id=body.session_id)
 
         # NOTE: this is the seam mentioned on Day 1 — config.USE_CREW
         # switches between the single-model tool-calling loop

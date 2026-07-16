@@ -28,3 +28,14 @@ python-pptx
 beautifulsoup4
 psycopg2-binary
 PyJWT
+# PII scrubbing on ingestion (pii_service.py). Pinned to en_core_web_sm
+# (~13MB) explicitly in code - Presidio's own default config wants
+# en_core_web_lg (~400MB), which this project has no other use for.
+# After `pip install -r requirements.txt`, also run:
+#   python -m spacy download en_core_web_sm
+# (spaCy models aren't installable as a plain requirements.txt line -
+# they're fetched via spaCy's own downloader, which resolves to a
+# GitHub release wheel.)
+presidio-analyzer
+presidio-anonymizer
+spacy
