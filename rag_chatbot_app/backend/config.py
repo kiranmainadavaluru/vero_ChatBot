@@ -76,6 +76,15 @@ POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "rag_password")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-only-insecure-secret-change-me")
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", 24 * 7))  # 7 days
 
+# ── Answering pipeline ───────────────────────────────────────
+# "agent" = the single-model tool-calling loop in agent_service.py.
+# "crew" = the 3-agent CrewAI pipeline in crew_service.py (Day 3-4
+# of the enhancement plan). Kept as a runtime flag rather than
+# deleting agent_service's path — lets you A/B latency/cost/quality
+# between the two before committing, and gives you a documented
+# fallback if the Crew path misbehaves in front of an interviewer.
+USE_CREW = os.getenv("USE_CREW", "false").lower() == "true"
+
 # ── Email verification ──────────────────────────────────────
 # Where the verification link in the email should point - the
 # frontend dev server by default. The frontend reads ?verify_token=

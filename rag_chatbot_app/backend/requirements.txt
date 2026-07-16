@@ -1,10 +1,23 @@
 flask
 flask-cors
+fastapi
+uvicorn[standard]
+pydantic[email]
+# Pinned to the version this was actually built and tested against (see
+# crew_service.py comments). Leaving crewai/litellm as two separate
+# unpinned top-level requirements is what caused the "resolution-too-deep"
+# error — crewai needs a specific litellm version range internally, and
+# asking pip to also independently resolve a bare "litellm" line forces
+# it to search both axes blind, which is what dragged it all the way
+# back to crewai's ancient 0.x releases (those pin old langchain, which
+# then conflicts with your already-installed modern huggingface-hub/
+# transformers). `crewai[litellm]` uses crewai's own extras metadata to
+# pick a compatible litellm version instead - one unknown, not two.
+crewai[litellm]==1.15.2
 python-dotenv
 PyPDF2
 langchain-text-splitters
 sentence-transformers
-weaviate-client>=3.24,<4  # TODO: remove once Qdrant migration is confirmed working end-to-end
 qdrant-client
 fastembed  # required for client-side BM25 sparse vectors (qdrant-client doesn't pull this in automatically)
 openai  # OpenAI SDK, pointed at Gemini's OpenAI-compatible endpoint (see config.py GEMINI_BASE_URL)

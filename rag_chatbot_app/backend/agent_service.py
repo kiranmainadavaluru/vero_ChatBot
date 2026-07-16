@@ -289,11 +289,15 @@ def _tool_list_documents(qdrant_client):
 def _chunks_to_sources(chunks):
     """Same shape the old ask_llm-based route returned, except `distance`
     is now `score` (higher = more relevant) since retrieval switched
-    from pure vector search to hybrid search - see retrieval_service.py."""
+    from pure vector search to hybrid search - see retrieval_service.py.
+    `rerank_score` is included when retrieval_service.ENABLE_RERANK
+    added one (see reranker.py) - omitted otherwise, since a stale/
+    absent field is more honest than inventing a default value."""
     return [
         {
             "content": c["content"],
             "score": round(float(c["_additional"]["score"]), 4),
+            "rerank_score": round(float(c["rerank_score"]), 4) if "rerank_score" in c else None,
             "chunk_index": c["chunk_index"],
             "filename": c["filename"],
             "page_number": c["page_number"],

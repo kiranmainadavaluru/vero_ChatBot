@@ -27,9 +27,11 @@ search alone was letting queries like "day 2" match almost any chunk
 that merely *looked* like a checklist entry, without the actual "Day
 2" chunk ranking anywhere near the top.
 """
+import os
 import re
 
 import vectorstore
+import reranker
 
 # Matches "day 2", "Day2", "day  12" etc. in the user's question.
 _DAY_QUERY_RE = re.compile(r"\bday\s*(\d+)\b", re.IGNORECASE)
@@ -39,22 +41,36 @@ _DAY_CONTENT_RE = re.compile(r"###\s*Day\s*(\d+)\b", re.IGNORECASE)
 # How many candidates to pull before grouping by document. This needs
 # to be comfortably larger than top_k, otherwise a single stray
 # similar chunk from the wrong document could get treated as if it
-# were that document's best evidence.
+# were that document's best evidence. Also the reranker's input pool
+# size when ENABLE_RERANK is on - reranking scores every candidate in
+# this pool, so it's a direct latency/cost knob (cross-encoder scoring
+# is O(pool_size), unlike hybrid search's approximate index lookup).
 CANDIDATE_POOL_SIZE = 15
 
 # How much weight vector similarity gets vs. BM25 keyword matching in
 # hybrid search. 0 = pure keyword, 1 = pure vector, 0.5 = equal.
 HYBRID_ALPHA = 0.5
 
-# Minimum hybrid relevance score (0-1, higher = more relevant) for a
-# chunk to be considered "relevant". Below this, the answer path
-# falls back to general knowledge instead of grounding on a weak
-# match. This is a starting value, not a calibrated one - hybrid
-# score distributions depend on your data, so watch the "Show
-# sources" scores in the UI on a few real questions (both ones that
-# should hit and ones that shouldn't) and adjust this up or down to
-# match where the real gap falls for your documents.
+# Toggle for the Day-5 cross-encoder reranking step (see reranker.py).
+# Defaults on; set ENABLE_RERANK=false to fall back to plain hybrid
+# ranking, e.g. to A/B quality, or if latency on your machine is too
+# high (the cross-encoder is small but still slower per-call than
+# hybrid search's index lookup).
+ENABLE_RERANK = os.getenv("ENABLE_RERANK", "true").lower() == "true"
+
+# Minimum relevance score (0-1, higher = more relevant) for a chunk to
+# be considered "relevant". Below this, the answer path falls back to
+# general knowledge instead of grounding on a weak match. Two separate
+# thresholds because rerank and hybrid scores come from different
+# models with different score distributions - swapping which one
+# gates the answer (rerank when enabled, hybrid otherwise) without
+# recalibrating a single shared number would silently change how
+# strict/loose the gate is. Neither is a calibrated value yet - watch
+# the "Show sources" scores in the UI on real questions (both ones
+# that should hit and ones that shouldn't) and adjust to match where
+# the real gap falls for your documents.
 MIN_RELEVANCE_SCORE = 0.2
+MIN_RERANK_SCORE = 0.5
 
 
 def retrieve(client, embedding_model, question, top_k=3, document_id=None):
@@ -71,6 +87,16 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
             client, question_vector, question, top_k=top_k,
             where_filter=where_filter, alpha=HYBRID_ALPHA,
         )
+        if ENABLE_RERANK and chunks:
+            # Reranks (reorders) the chunks already scoped to this one
+            # document - doesn't widen the pool the way the
+            # auto-routing path below does, since top_k here was
+            # already the caller's explicit request size, not a
+            # candidate pool meant to be narrowed further. Widening it
+            # too (fetch more, rerank, truncate to top_k) would improve
+            # in-document ordering further - noted as a follow-up, not
+            # done here to keep this change scoped to what Day 5 needs.
+            chunks = reranker.rerank(question, chunks)
         return chunks, {
             "mode": "explicit_filter",
             "document_id": document_id,
@@ -83,19 +109,27 @@ def retrieve(client, embedding_model, question, top_k=3, document_id=None):
     if not candidates:
         return [], {"mode": "no_results"}
 
+    if ENABLE_RERANK:
+        candidates = reranker.rerank(question, candidates)
+
+    # Deterministic override runs after reranking, same as it ran
+    # after hybrid scoring before: an exact "Day N" match in the
+    # question should always win, regardless of which relevance model
+    # produced the ranking underneath it.
     candidates = _boost_exact_day_match(question, candidates)
 
     ranked_documents = _rank_documents_by_relevance(candidates)
     best_document = ranked_documents[0]
     best_document_id = best_document["document_id"]
+    threshold = MIN_RERANK_SCORE if ENABLE_RERANK else MIN_RELEVANCE_SCORE
 
     # Deterministic gate: if even the best chunk scores too low, don't
     # ground on it - let the caller fall back to general knowledge.
-    if best_document["best_score"] < MIN_RELEVANCE_SCORE:
+    if best_document["best_score"] < threshold:
         return [], {
             "mode": "below_threshold",
             "best_score": best_document["best_score"],
-            "threshold": MIN_RELEVANCE_SCORE,
+            "threshold": threshold,
             "candidate_documents": ranked_documents,
         }
 
@@ -140,6 +174,11 @@ def _rank_documents_by_relevance(candidates):
     doesn't get penalized just for having more so-so chunks in the
     candidate pool - what matters is whether it has the single best
     piece of evidence for this question.
+
+    Prefers each chunk's rerank_score (added by reranker.rerank(), see
+    retrieve()) when present, falling back to the hybrid score
+    otherwise - so this works unchanged whether ENABLE_RERANK is on
+    or off, without the caller needing two code paths.
     """
     best_score_by_doc = {}
     filename_by_doc = {}
@@ -147,7 +186,7 @@ def _rank_documents_by_relevance(candidates):
     for chunk in candidates:
         doc_id = chunk["document_id"]
         # Weaviate's GraphQL API returns hybrid score as a string.
-        score = float(chunk["_additional"]["score"])
+        score = float(chunk.get("rerank_score", chunk["_additional"]["score"]))
         if doc_id not in best_score_by_doc or score > best_score_by_doc[doc_id]:
             best_score_by_doc[doc_id] = score
             filename_by_doc[doc_id] = chunk["filename"]
