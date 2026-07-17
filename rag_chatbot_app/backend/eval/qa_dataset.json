@@ -1,0 +1,62 @@
+[
+  {
+    "id": "q01",
+    "question": "What Python concept is covered on Day 1 of the checklist, and what's the classic bug associated with it?",
+    "ground_truth": "Day 1 covers mutability, identity vs. equality (mutable vs. immutable types, `is` vs `==`, how variables reference objects), and the classic bug associated with it is the 'mutable default argument' gotcha."
+  },
+  {
+    "id": "q02",
+    "question": "What does the checklist say the LEGB rule stands for, and which day covers it?",
+    "ground_truth": "LEGB stands for Local -> Enclosing -> Global -> Built-in resolution order, covered on Day 2 (Scope & Closures)."
+  },
+  {
+    "id": "q03",
+    "question": "According to the checklist, what should you build on Day 6 to practice context managers?",
+    "ground_truth": "On Day 6, you should build a context manager that safely opens and closes a DB connection, tied to your PostgreSQL work, in addition to writing a context manager that times a code block."
+  },
+  {
+    "id": "q04",
+    "question": "What two decorators are you asked to build from scratch on Day 11?",
+    "ground_truth": "On Day 11 you build a `@timing` decorator and a parametrized `@retry(times=3)` decorator."
+  },
+  {
+    "id": "q05",
+    "question": "On Day 13, what testing tool does the checklist introduce, and what should you build with it?",
+    "ground_truth": "Day 13 introduces pytest basics (assert, fixtures, @pytest.mark.parametrize), and you should write 5 tests for the Document classes built in Days 8-12."
+  },
+  {
+    "id": "q06",
+    "question": "What is the interview question listed for Day 15 about the GIL?",
+    "ground_truth": "The Day 15 interview question is: 'Why doesn't threading speed up CPU-bound Python code?'"
+  },
+  {
+    "id": "q07",
+    "question": "What should you build on Day 17 to practice asyncio in a real scenario?",
+    "ground_truth": "On Day 17 you build a program that fetches multiple URLs concurrently using asyncio.gather and aiohttp, and also convert one synchronous function from Week 1-2 into an async version."
+  },
+  {
+    "id": "q08",
+    "question": "According to the checklist, what static type checking tool should you run on Day 19, and what should you do with it?",
+    "ground_truth": "On Day 19 you run mypy on your typed code and fix the errors it surfaces; you should also intentionally introduce 3 type bugs and catch them with mypy before running."
+  },
+  {
+    "id": "q09",
+    "question": "What are the three options listed for the harder chatbot feature to plan on Day 22?",
+    "ground_truth": "The three options are: streaming responses, async endpoint handling, or an improved chunking strategy."
+  },
+  {
+    "id": "q10",
+    "question": "What is the capstone task on Day 30?",
+    "ground_truth": "On Day 30 (the capstone), you explain your chatbot's full architecture cold, in under 10 minutes with no notes; review your interview doc for any shaky concepts from the 30 days; and pick your 3 weakest topics to schedule a repeat pass in Week 5."
+  },
+  {
+    "id": "q11",
+    "question": "What four things should you do during the Weekly Self-Check according to the checklist?",
+    "ground_truth": "The Weekly Self-Check asks: can you explain each concept from the week without looking at notes, did you predict-then-run every snippet or skip some, and is your interview doc updated with that week's 6-part entries."
+  },
+  {
+    "id": "q12",
+    "question": "Does the checklist mention anything about Kubernetes or container orchestration?",
+    "ground_truth": "No. The checklist does not mention Kubernetes or container orchestration anywhere; its scope is Python language fundamentals, OOP, concurrency, typing, packaging, and applied chatbot features over 30 days."
+  }
+]
