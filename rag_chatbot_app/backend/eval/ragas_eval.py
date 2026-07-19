@@ -84,6 +84,11 @@ def load_dataset(path: Path) -> list[dict]:
         return json.load(f)
 
 
+class DailyQuotaExhausted(RuntimeError):
+    """Raised instead of retrying when Gemini's 429 is a per-day quota,
+    not a per-minute throttle - see _is_daily_quota_exhausted."""
+
+
 def _parse_retry_delay(error, default=20.0):
     """
     Gemini's free-tier 429 includes a human-readable 'Please retry in
@@ -99,6 +104,21 @@ def _parse_retry_delay(error, default=20.0):
     return default
 
 
+def _is_daily_quota_exhausted(error) -> bool:
+    """
+    Google's 429 body includes a quotaId that distinguishes a per-day
+    cap (e.g. 'GenerateRequestsPerDayPerProjectPerModel-FreeTier')
+    from a per-minute one - that's the reliable signal, not the
+    message text, which says 'Please retry in Ns' for *both* cases
+    even though the wait genuinely won't help for a daily cap (the
+    next call 41s from now hits the same exhausted daily quota and
+    fails again). Retrying a daily-quota 429 just burns wall-clock
+    time for nothing - confirmed directly against a real run that did
+    exactly that for ~5 minutes before finally giving up.
+    """
+    return "perday" in str(error).lower().replace(" ", "")
+
+
 def _call_with_retry(fn, *args, max_retries=6, **kwargs):
     """
     Free-tier Gemini keys are rate-limited (5 requests/minute at the
@@ -109,11 +129,23 @@ def _call_with_retry(fn, *args, max_retries=6, **kwargs):
     This is the backup: retry on 429 specifically, honoring the
     provider's suggested wait, rather than failing the whole eval run
     over a transient quota window.
+
+    A per-day quota exhaustion is a different failure mode entirely -
+    see _is_daily_quota_exhausted - and is raised immediately instead
+    of retried, since retrying literally cannot succeed until the
+    quota resets.
     """
     for attempt in range(max_retries + 1):
         try:
             return fn(*args, **kwargs)
         except RateLimitError as e:
+            if _is_daily_quota_exhausted(e):
+                raise DailyQuotaExhausted(
+                    "Gemini's free-tier DAILY request quota is exhausted for this model - "
+                    "this is not a per-minute throttle, so waiting/retrying now won't help. "
+                    "It resets on Google's schedule (typically midnight Pacific time). See "
+                    "eval/README.md's 'Hit a daily quota wall?' section for options."
+                ) from e
             if attempt == max_retries:
                 raise
             delay = _parse_retry_delay(e)
@@ -251,4 +283,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except DailyQuotaExhausted as e:
+        print(f"\n❌ {e}")
+        sys.exit(1)

@@ -68,6 +68,51 @@ Faithfulness and context precision are about the *generation* step;
 context recall is about the *retrieval* step - a low score on one vs.
 the other points at a different part of the pipeline to fix.
 
+## Hit a daily quota wall?
+
+Google cut Gemini free-tier daily quotas sharply in December 2025.
+As of mid-2026, the free tier for `gemini-3.5-flash` is around **20
+requests/day** (confirmed directly - this is what actually happened
+running this harness). That's not a per-minute throttle you can wait
+out in under a minute; it's a hard daily cap that resets on Google's
+schedule (typically midnight Pacific time), and `ragas_eval.py`
+detects this specifically (`DailyQuotaExhausted`) and fails fast
+instead of retrying something that can't succeed until then.
+
+The problem: a full run of this harness needs on the order of
+**100+ Gemini calls** - the agent's tool-calling loop makes at least
+one call per question (12 questions), and RAGAS's own scoring makes
+several calls per metric per question (4 metrics × 12 questions).
+20/day doesn't cover that, and spreading it across many days with
+`--limit` is technically possible but painfully slow for what's
+meant to be a quick eval.
+
+Realistic options, roughly in order of how much sense they make for
+a portfolio project:
+
+1. **Enable billing on the API key.** Gemini 3.5 Flash is priced
+   around $1.50/million input tokens and $9/million output tokens as
+   of mid-2026. Every call this harness makes is a short chat
+   completion (a few hundred to a couple thousand tokens each) - a
+   full run is very unlikely to cost more than a dollar, probably a
+   few cents to tens of cents. This is the practical fix if you want
+   to actually see full RAGAS scores today.
+2. **Wait for the daily reset and use `--limit`** to spread a run
+   across several days for free. Given the ~100+ call requirement
+   against a 20/day cap, expect this to take the better part of a
+   week for one full pass - fine if you're not in a hurry, awkward
+   otherwise.
+3. **Point `config.CHAT_MODEL` at a cheaper/higher-quota model** (e.g.
+   a Flash-Lite variant) if your account's free tier gives it a more
+   generous daily allowance than Flash - worth checking your own
+   Google AI Studio dashboard, since published numbers vary by
+   account and change often enough that anything written here could
+   be stale by the time you read it.
+
+Whichever you pick, `--limit N` is there so you don't have to spend
+your whole daily budget finding out the harness itself works before
+committing to a full run.
+
 ## Known limitations (worth saying out loud, not burying)
 
 - **Same-model judging**: the judge LLM is the same Gemini model used
