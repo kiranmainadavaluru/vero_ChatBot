@@ -36,7 +36,9 @@ portfolio eval.
 """
 import argparse
 import json
+import re
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -51,7 +53,7 @@ import crew_service  # noqa: E402
 import upload_service  # noqa: E402
 import vectorstore  # noqa: E402
 from sentence_transformers import SentenceTransformer  # noqa: E402
-from openai import OpenAI  # noqa: E402
+from openai import OpenAI, RateLimitError  # noqa: E402
 
 from ragas import evaluate, EvaluationDataset, SingleTurnSample  # noqa: E402
 from ragas.metrics import (  # noqa: E402
@@ -62,6 +64,7 @@ from ragas.metrics import (  # noqa: E402
 )
 from ragas.embeddings import HuggingFaceEmbeddings  # noqa: E402
 from ragas.llms import llm_factory  # noqa: E402
+from ragas.run_config import RunConfig  # noqa: E402
 
 EVAL_DIR = Path(__file__).resolve().parent
 DEFAULT_DATASET = EVAL_DIR / "qa_dataset.json"
@@ -81,15 +84,59 @@ def load_dataset(path: Path) -> list[dict]:
         return json.load(f)
 
 
-def run_pipeline(qa_pairs, qdrant_client, embedding_model, llm_client, document_id, use_crew):
+def _parse_retry_delay(error, default=20.0):
+    """
+    Gemini's free-tier 429 includes a human-readable 'Please retry in
+    41.8s' in the message (and a structured retryDelay in the response
+    body, but the message is the reliable part across SDK versions).
+    Best-effort regex extraction with a safety margin; falls back to a
+    fixed default rather than guessing low and hammering a still-
+    exhausted quota again immediately.
+    """
+    match = re.search(r"retry in (\d+(?:\.\d+)?)s", str(error), re.IGNORECASE)
+    if match:
+        return float(match.group(1)) + 2.0
+    return default
+
+
+def _call_with_retry(fn, *args, max_retries=6, **kwargs):
+    """
+    Free-tier Gemini keys are rate-limited (5 requests/minute at the
+    time this was written) - the --delay pacing in run_pipeline below
+    is the primary defense, but a single question can still trigger
+    more than one LLM call internally (the agent's tool-calling loop),
+    which can burn through the per-minute budget within one question.
+    This is the backup: retry on 429 specifically, honoring the
+    provider's suggested wait, rather than failing the whole eval run
+    over a transient quota window.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except RateLimitError as e:
+            if attempt == max_retries:
+                raise
+            delay = _parse_retry_delay(e)
+            print(f"    Rate limited (attempt {attempt + 1}/{max_retries}) - waiting {delay:.0f}s...")
+            time.sleep(delay)
+
+
+def run_pipeline(qa_pairs, qdrant_client, embedding_model, llm_client, document_id, use_crew, delay_seconds):
     """
     Calls the real pipeline once per question and builds RAGAS
     SingleTurnSample records from the (answer, sources, retrieval_info)
     it returns. No mocking - this is the same code path a real chat
     request takes.
+
+    delay_seconds paces requests to stay under a free-tier rate limit -
+    see _call_with_retry for the reactive backup when pacing alone
+    isn't enough for a given question.
     """
     samples = []
     for i, qa in enumerate(qa_pairs, start=1):
+        if i > 1 and delay_seconds > 0:
+            time.sleep(delay_seconds)
+
         # A fresh throwaway session_id per question - run_agent/run_crew
         # only *read* chat history for context (they don't require the
         # session to already exist as a row), so this is safe without
@@ -98,11 +145,13 @@ def run_pipeline(qa_pairs, qdrant_client, embedding_model, llm_client, document_
         question = qa["question"]
 
         if use_crew:
-            answer, sources, retrieval_info = crew_service.run_crew(
+            answer, sources, retrieval_info = _call_with_retry(
+                crew_service.run_crew,
                 qdrant_client, embedding_model, session_id, question, document_id=document_id,
             )
         else:
-            answer, sources, retrieval_info = agent_service.run_agent(
+            answer, sources, retrieval_info = _call_with_retry(
+                agent_service.run_agent,
                 llm_client, qdrant_client, embedding_model, session_id, question, document_id=document_id,
             )
 
@@ -126,6 +175,12 @@ def main():
     parser.add_argument("--document-id", help="Use an already-ingested document instead of --ingest")
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET), help="Path to the labeled Q&A JSON file")
     parser.add_argument("--crew", action="store_true", help="Score crew_service.run_crew instead of agent_service.run_agent")
+    parser.add_argument(
+        "--delay", type=float, default=13.0,
+        help="Seconds to wait between pipeline calls, to stay under a free-tier rate limit (default: 13, i.e. "
+             "under Gemini's free-tier 5 requests/minute with some margin). Set to 0 if you're on a paid tier.",
+    )
+    parser.add_argument("--limit", type=int, default=None, help="Only run the first N questions (useful for a quick smoke test)")
     args = parser.parse_args()
 
     if not args.ingest and not args.document_id:
@@ -145,13 +200,18 @@ def main():
         print(f"Ingested as document_id={document_id} ({result['chunks_stored']} chunk(s))")
 
     qa_pairs = load_dataset(Path(args.dataset))
+    if args.limit:
+        qa_pairs = qa_pairs[: args.limit]
     pipeline_name = "crew_service.run_crew" if args.crew else "agent_service.run_agent"
-    print(f"\nRunning {len(qa_pairs)} question(s) through {pipeline_name}...")
-    samples = run_pipeline(qa_pairs, qdrant_client, embedding_model, llm_client, document_id, args.crew)
+    print(f"\nRunning {len(qa_pairs)} question(s) through {pipeline_name} (--delay {args.delay}s between calls)...")
+    samples = run_pipeline(qa_pairs, qdrant_client, embedding_model, llm_client, document_id, args.crew, args.delay)
 
     dataset = EvaluationDataset(samples=samples)
 
-    print("\nScoring with RAGAS (calls Gemini once per metric per question - this is the slow part)...")
+    print(
+        "\nScoring with RAGAS (calls Gemini several times per metric per question - "
+        "this is the slow part, especially on a free-tier key; expect this to take a while)..."
+    )
     ragas_llm = llm_factory(model=config.CHAT_MODEL, client=llm_client)
     # Local, free embeddings for the metric that needs them (answer
     # relevancy) - same model the app itself embeds chunks with, so
@@ -164,7 +224,13 @@ def main():
         LLMContextPrecisionWithReference(llm=ragas_llm),
         LLMContextRecall(llm=ragas_llm),
     ]
-    result = evaluate(dataset=dataset, metrics=metrics)
+    # max_workers=1 serializes ragas's own LLM calls (default is 16
+    # concurrent, which blows straight through a 5 req/min free-tier
+    # quota) - max_retries/max_wait give its built-in retry loop room
+    # to back off on a 429 (any Exception triggers a retry by default)
+    # instead of failing the whole run on the first one.
+    run_config = RunConfig(max_workers=1, max_retries=10, max_wait=90)
+    result = evaluate(dataset=dataset, metrics=metrics, run_config=run_config)
 
     df = result.to_pandas()
     df.to_csv(RESULTS_CSV, index=False)
