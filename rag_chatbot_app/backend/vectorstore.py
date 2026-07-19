@@ -63,7 +63,9 @@ def ensure_schema(client, reset=False):
     """
     Make sure the DocumentChunk collection exists in Qdrant, with a
     named dense vector ("dense", for sentence-transformers embeddings)
-    and a named sparse vector ("bm25", for keyword matching).
+    and a named sparse vector ("bm25", for keyword matching), plus a
+    payload index on document_id (see _ensure_document_id_index for
+    why that's not optional).
 
     reset=True drops and recreates the collection first - see the
     original Weaviate version's docstring for why this must default
@@ -71,26 +73,58 @@ def ensure_schema(client, reset=False):
     """
     exists = client.collection_exists(config.QDRANT_COLLECTION_NAME)
 
-    if exists and not reset:
-        return
-
     if exists and reset:
         client.delete_collection(config.QDRANT_COLLECTION_NAME)
         print(f"🗑️  Dropped existing '{config.QDRANT_COLLECTION_NAME}' collection")
+        exists = False
 
-    client.create_collection(
+    if not exists:
+        client.create_collection(
+            collection_name=config.QDRANT_COLLECTION_NAME,
+            vectors_config={
+                "dense": models.VectorParams(
+                    size=config.EMBEDDING_DIMENSIONS,
+                    distance=models.Distance.COSINE,
+                ),
+            },
+            sparse_vectors_config={
+                "bm25": models.SparseVectorParams(),
+            },
+        )
+        print(f"✅ Created '{config.QDRANT_COLLECTION_NAME}' collection in Qdrant")
+
+    # Runs every time, including against a collection that already
+    # existed - see _ensure_document_id_index for why this can't be
+    # inside the `if not exists` branch above.
+    _ensure_document_id_index(client)
+
+
+def _ensure_document_id_index(client):
+    """
+    Qdrant's server/cloud mode (unlike the in-process ':memory:' mode)
+    refuses to filter a query on a payload field that has no index for
+    it - query_points raises a 400 "Index required but not found" if
+    you try. retrieval_service.py's strict document-scoping (searching
+    within one selected document) does exactly that filter, on
+    document_id, so without this index any document-scoped search
+    fails outright rather than just being slow.
+
+    This was a latent gap, not something that broke on this call:
+    ensure_schema() previously only ran its body for a brand-new
+    collection (`if exists and not reset: return`), so anyone who'd
+    already ingested documents before this fix would never get the
+    index created on their existing collection just by restarting the
+    app. Calling this unconditionally, every time, is the fix -
+    create_payload_index is idempotent (confirmed empirically: calling
+    it again on a field that's already indexed returns the same
+    COMPLETED status rather than raising), so there's no need to check
+    "does the index already exist" first.
+    """
+    client.create_payload_index(
         collection_name=config.QDRANT_COLLECTION_NAME,
-        vectors_config={
-            "dense": models.VectorParams(
-                size=config.EMBEDDING_DIMENSIONS,
-                distance=models.Distance.COSINE,
-            ),
-        },
-        sparse_vectors_config={
-            "bm25": models.SparseVectorParams(),
-        },
+        field_name="document_id",
+        field_schema=models.PayloadSchemaType.KEYWORD,
     )
-    print(f"✅ Created '{config.QDRANT_COLLECTION_NAME}' collection in Qdrant")
 
 
 def insert_chunks(client, chunks, embeddings, metadata_list):

@@ -133,6 +133,7 @@ def main():
 
     print("Connecting to Qdrant and loading the embedding model...")
     qdrant_client = vectorstore.get_client()
+    vectorstore.ensure_schema(qdrant_client, reset=False)
     embedding_model = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
     llm_client = OpenAI(api_key=config.GEMINI_API_KEY, base_url=config.GEMINI_BASE_URL)
 
