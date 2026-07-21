@@ -39,3 +39,8 @@ PyJWT
 presidio-analyzer
 presidio-anonymizer
 spacy
+# Day 8: tracing around the Crew run (tracing.py). Both are optional
+# at runtime (see tracing.py) but need to be installed for the
+# import to succeed when LANGFUSE_PUBLIC_KEY/SECRET_KEY are set.
+langfuse
+openinference-instrumentation-crewai

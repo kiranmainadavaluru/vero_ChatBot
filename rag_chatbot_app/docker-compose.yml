@@ -10,8 +10,9 @@ services:
 
   postgres:
     image: postgres:16
-    ports:
-      - "5432:5432"
+    # Host port 5432 not published to avoid conflict with a local Postgres
+    # service. Use `docker compose exec postgres psql -U rag_user rag_chatbot`
+    # for host-side access, or re-add a mapping like "5433:5432".
     environment:
       POSTGRES_DB: rag_chatbot
       POSTGRES_USER: rag_user

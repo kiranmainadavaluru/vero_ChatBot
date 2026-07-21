@@ -36,11 +36,21 @@ Design choices worth calling out (useful for interview Q&A / the
     the short-circuit at the bottom of run_crew) - same reasoning as
     agent_service.py: a prompt instruction alone isn't reliable
     enough to guarantee "never answer from general knowledge".
+
+Day 8 addition: crew.kickoff() below runs inside
+tracing.trace_crew_run(), which - only when Langfuse credentials are
+configured - wraps the whole three-agent run in a named Langfuse
+trace grouped by chat session. See tracing.py for how the CrewAI
+instrumentation is wired up and why it's optional.
 """
 import json
 import os
 from typing import Any, Optional, Type
 
+import tracing  # noqa: F401 (side-effecting import - see tracing.py's
+                 # module docstring: this must run and instrument CrewAI
+                 # before any Agent/Task/Crew object does real work,
+                 # so it's imported first, ahead of `from crewai import ...`)
 from crewai import Agent, Crew, LLM, Process, Task
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field, PrivateAttr
@@ -246,7 +256,8 @@ def run_crew(qdrant_client, embedding_model, session_id, question, document_id=N
         verbose=AGENT_DEBUG,
     )
 
-    result = crew.kickoff()
+    with tracing.trace_crew_run(session_id, question, document_id=document_id, strict_mode=strict_mode):
+        result = crew.kickoff()
     answer = str(result).strip()
 
     chunks = search_tool._last_chunks

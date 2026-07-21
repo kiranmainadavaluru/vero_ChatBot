@@ -119,3 +119,14 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "no-reply@vero.local")
+
+# ── Langfuse tracing on the Crew run (Day 8) ────────────────
+# Optional - see tracing.py. Unset LANGFUSE_PUBLIC_KEY/SECRET_KEY and
+# the Crew path runs exactly as before, no tracing overhead.
+# Get keys from https://cloud.langfuse.com (project settings) or your
+# self-hosted instance. LANGFUSE_BASE_URL defaults to the EU Cloud
+# region; use https://us.cloud.langfuse.com for US, or your own host
+# if self-hosting.
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_BASE_URL = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
