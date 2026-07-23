@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const API_BASE = 'http://127.0.0.1:8000/api'
 const TOKEN_KEY = 'vero_token'
@@ -292,7 +294,13 @@ function Message({ role, content, error, sources, retrieval }) {
   return (
     <div className="message-row assistant">
       <div className={`bubble assistant-bubble ${error ? 'error-bubble' : ''}`}>
-        <p className="answer-text">{content}</p>
+        {error ? (
+          <p className="answer-text">{content}</p>
+        ) : (
+          <div className="answer-text markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        )}
 
         {!error && <RetrievalBadge retrieval={retrieval} />}
 
@@ -999,7 +1007,7 @@ function ChatApp({ user, onLogout }) {
                 title={
                   strictMode
                     ? 'Docs only is ON - Vero will only answer from your uploaded documents'
-                    : 'Docs only is OFF - Vero may answer from general knowledge if nothing relevant is found'
+                    : 'Docs only is OFF - Vero answers normally and has no access to your uploaded documents'
                 }
               >
                 <span className="strict-toggle-dot" />

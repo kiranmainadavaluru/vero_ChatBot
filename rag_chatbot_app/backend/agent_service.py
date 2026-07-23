@@ -35,28 +35,23 @@ MAX_TOOL_ITERATIONS = 4          # hard stop so a confused loop can't run foreve
 MAX_HISTORY_MESSAGES = 8         # last N chat turns given to the model as context
 SEARCH_TOP_K = 5
 
-SYSTEM_PROMPT = """You are Vero, a helpful assistant that answers questions using the \
-user's uploaded documents when relevant.
+# Used when "Docs only" is OFF. In this mode the model has no access to
+# search_documents / list_uploaded_documents at all - not "prefer docs,
+# fall back to general knowledge", but no document access whatsoever.
+# run_agent() pairs this prompt with a plain (tool-less) completion call,
+# so there's nothing to enforce in code the way strict mode needs below -
+# the model literally isn't given the tools, so it can't reach the
+# documents even if it wanted to.
+GENERAL_SYSTEM_PROMPT = """You are Vero, a helpful, direct assistant.
 
 - Your name is Vero. If asked who you are, what model you are, or who built/trained \
 you, answer only as Vero - never mention Claude, Anthropic, GPT, OpenAI, or any \
 other assistant/company, even if that information feels familiar to you. You are Vero.
-- Use the search_documents tool whenever the question could plausibly be answered \
-by something the user has uploaded. Formulate a clear, standalone search query, \
-resolving any pronouns or missing topic from the conversation so far.
-- Use list_uploaded_documents when the user asks what files/documents are \
-available, or when you're unsure whether a relevant document exists.
-- If a document search comes back empty or irrelevant, answer from your own \
-general knowledge instead, and briefly say the answer is not from an uploaded \
-document.
-- Ground any document-based answer strictly in the retrieved content - do not \
-invent facts that aren't supported by it.
-- Once a tool has returned results, use them to answer - do not call the same \
-tool again with a reworded query unless the first result was clearly empty or \
-irrelevant. You have at most a few tool calls available; use them decisively.
-- If the user's message is short or ambiguous (e.g. a topic phrase rather than \
-a full question), search for it as-is and answer based on whatever is found, \
-rather than repeatedly re-querying to try to guess a "better" question.
+- "Docs only" mode is currently OFF - you do not have access to the user's uploaded \
+documents right now. Answer every question from your own general knowledge, the way \
+any helpful assistant would. Don't claim to have checked, searched, or looked at any \
+documents, and don't mention that document access is unavailable unless the user \
+directly asks about their documents.
 - Keep answers clear and concise.
 """
 
@@ -135,20 +130,42 @@ TOOLS = [
 
 def run_agent(llm_client, qdrant_client, embedding_model, session_id, question, document_id=None, strict_mode=False):
     """
-    Agentic replacement for the old ask_llm(). The model decides for
-    itself whether it needs to search documents, list documents, or
-    just answer directly - unless strict_mode is True, in which case
-    a document search is forced and an empty/weak result short-circuits
-    straight to a fixed "not found" answer instead of letting the model
-    fall back to its own general knowledge.
+    Agentic replacement for the old ask_llm().
+
+    strict_mode is the "Docs only" toggle, and it's a hard switch, not a
+    hint - the model is only ever given the search_documents /
+    list_uploaded_documents tools when it's True:
+      - strict_mode=True:  tools are attached, a document search is
+        forced on the first turn, and an empty/weak result short-circuits
+        straight to a fixed "not found" answer instead of letting the
+        model fall back to its own general knowledge.
+      - strict_mode=False: no tools are attached at all, so the model has
+        no way to reach the uploaded documents even if it wanted to - it
+        just answers normally, like a plain chat assistant.
 
     Returns (answer_text, sources, retrieval_info) - same shape the
     /api/chat route already expects, so the frontend contract doesn't
     change.
     """
-    system_prompt = STRICT_SYSTEM_PROMPT if strict_mode else SYSTEM_PROMPT
+    if not strict_mode:
+        # No tools attached - the model has no code path to the
+        # documents, so there's nothing to short-circuit or enforce here.
+        messages = (
+            [{"role": "system", "content": GENERAL_SYSTEM_PROMPT}]
+            + _recent_messages_as_chat(session_id)
+            + [{"role": "user", "content": question}]
+        )
+        completion = llm_client.chat.completions.create(
+            model=config.CHAT_MODEL,
+            messages=messages,
+            temperature=0.6,
+            max_tokens=400,
+        )
+        answer = completion.choices[0].message.content.strip()
+        return answer, [], {"mode": "docs_off"}
+
     messages = (
-        [{"role": "system", "content": system_prompt}]
+        [{"role": "system", "content": STRICT_SYSTEM_PROMPT}]
         + _recent_messages_as_chat(session_id)
         + [{"role": "user", "content": question}]
     )
@@ -157,10 +174,10 @@ def run_agent(llm_client, qdrant_client, embedding_model, session_id, question, 
     retrieval_info = {"mode": "agent_no_search"}
 
     for iteration in range(MAX_TOOL_ITERATIONS):
-        # In strict mode, don't let the model choose to skip retrieval on
-        # its first turn - that's the other way it was reaching general
-        # knowledge (never calling search_documents at all).
-        force_search = strict_mode and iteration == 0
+        # Don't let the model choose to skip retrieval on its first turn -
+        # that's the other way it was reaching general knowledge (never
+        # calling search_documents at all).
+        force_search = iteration == 0
         completion = llm_client.chat.completions.create(
             model=config.CHAT_MODEL,
             messages=messages,
@@ -202,7 +219,7 @@ def run_agent(llm_client, qdrant_client, embedding_model, session_id, question, 
                 )
                 if chunks:
                     sources = _chunks_to_sources(chunks)
-                elif strict_mode:
+                else:
                     # Code-level stop, not just a prompt instruction: there is
                     # nothing usable in the documents, so return a fixed
                     # answer directly rather than handing control back to the

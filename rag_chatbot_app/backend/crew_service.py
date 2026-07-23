@@ -155,28 +155,62 @@ def run_crew(qdrant_client, embedding_model, session_id, question, document_id=N
     CrewAI counterpart to agent_service.run_agent(). Same signature,
     same (answer, sources, retrieval_info) return shape - see the
     swap point marked in main.py's /api/chat handler.
+
+    strict_mode is the "Docs only" toggle, and it's a hard switch here
+    too: when it's False, this skips the retrieval/verifier stages and
+    the search_documents tool entirely - a single general-purpose agent
+    answers directly, with no code path to the uploaded documents at
+    all. When it's True, the full three-agent pipeline below runs.
     """
     llm = _build_llm()
-    search_tool = DocumentSearchTool(
-        qdrant_client=qdrant_client,
-        embedding_model=embedding_model,
-        document_id=document_id,
-    )
-
     history = _recent_messages_as_chat(session_id)
     history_text = (
         "\n".join(f"{m['role']}: {m['content']}" for m in history[-MAX_HISTORY_MESSAGES:])
         or "(no prior messages in this session)"
     )
 
+    if not strict_mode:
+        general_agent = Agent(
+            role="General Assistant",
+            goal="Answer the user's question directly using your own general knowledge.",
+            backstory=(
+                "You are Vero. 'Docs only' mode is off right now, so you don't have "
+                "access to the user's uploaded documents - just answer normally, the "
+                "way any helpful assistant would."
+            ),
+            llm=llm,
+            verbose=AGENT_DEBUG,
+            allow_delegation=False,
+        )
+        general_task = Task(
+            description=(
+                f"Conversation so far:\n{history_text}\n\n"
+                f"Current question: {question}\n\n"
+                "Answer directly and concisely, from your own knowledge."
+            ),
+            expected_output="A clear, concise answer.",
+            agent=general_agent,
+        )
+        crew = Crew(
+            agents=[general_agent],
+            tasks=[general_task],
+            process=Process.sequential,
+            verbose=AGENT_DEBUG,
+        )
+        with tracing.trace_crew_run(session_id, question, document_id=document_id, strict_mode=strict_mode):
+            result = crew.kickoff()
+        return str(result).strip(), [], {"mode": "docs_off"}
+
+    search_tool = DocumentSearchTool(
+        qdrant_client=qdrant_client,
+        embedding_model=embedding_model,
+        document_id=document_id,
+    )
+
     grounding_rule = (
         "You must answer using ONLY content returned by search_documents. "
         "General knowledge is turned off - if nothing relevant is found, "
         "say plainly that the uploaded documents don't contain that information."
-        if strict_mode else
-        "Prefer grounding your answer in search_documents results. If the "
-        "search returns nothing relevant, you may answer from general "
-        "knowledge, but say so explicitly."
     )
 
     retrieval_agent = Agent(
@@ -268,8 +302,10 @@ def run_crew(qdrant_client, embedding_model, session_id, question, document_id=N
     # same reasoning as agent_service.run_agent()'s strict_mode
     # short-circuit: a prompt instruction is a strong nudge, not a
     # guarantee, so a real answer can't reach the user in strict mode
-    # unless a document search actually found something.
-    if strict_mode and not chunks:
+    # unless a document search actually found something. (This function
+    # only reaches here when strict_mode is True - the docs-off path
+    # returns early above.)
+    if not chunks:
         return (
             "I don't have that information in your uploaded documents.",
             [],
